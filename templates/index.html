@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verbali Assemblea</title>
+</head>
+<body>
+    <h1>Piattaforma Verbali Assemblea</h1>
+
+    <!-- Sezione Upload -->
+    <section>
+        <h2>Carica Verbale</h2>
+        <input type="file" id="fileInput" accept=".docx">
+        <button onclick="uploadFile()">Carica</button>
+    </section>
+
+    <!-- Sezione Visualizzazione Dati -->
+    <section id="dataSection" style="display: none;">
+        <h2>Dati Estratti</h2>
+        <div id="extractedData"></div>
+        <button onclick="editData()">Modifica Dati</button>
+        <button onclick="generateDocument()">Genera Documento</button>
+    </section>
+
+    <!-- Sezione Modifica Dati (inizialmente nascosta) -->
+    <section id="editSection" style="display: none;">
+        <h2>Modifica Dati</h2>
+        <form id="editForm">
+            <div>
+                <label for="nomeAssemblea">Nome Assemblea:</label>
+                <input type="text" id="nomeAssemblea" name="nomeAssemblea">
+            </div>
+            <div>
+                <label for="data">Data:</label>
+                <input type="date" id="data" name="data">
+            </div>
+            <div>
+                <label for="ora">Ora:</label>
+                <input type="time" id="ora" name="ora">
+            </div>
+            <div>
+                <label for="ordineGiorno">Ordine del Giorno:</label>
+                <textarea id="ordineGiorno" name="ordineGiorno" rows="5" cols="50"></textarea>
+            </div>
+            <!-- Aggiungere altri campi necessari qui -->
+        </form>
+        <button onclick="saveChanges()">Salva Modifiche</button>
+        <button onclick="cancelEdit()">Annulla</button>
+    </section>
+
+    <script>
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            if (!file) {
+                alert('Seleziona un file .docx da caricare.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/process', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Errore HTTP! stato: ${response.status}`);
+                }
+
+                const data = await response.json();
+                displayData(data);
+
+            } catch (error) {
+                console.error('Errore durante l\'upload:', error);
+                alert('Errore durante il caricamento del file.');
+            }
+        }
+
+        let currentVerbaleData = {};
+
+        function displayData(data) {
+            const uploadSection = document.querySelector('section'); // Assumendo che la sezione upload sia la prima
+            const editSection = document.getElementById('editSection');
+            const extractedDataDiv = document.getElementById('extractedData');
+            const editForm = document.getElementById('editForm');
+
+            // Visualizza il markdown estratto (opzionale, per riferimento)
+            extractedDataDiv.textContent = data.extracted_markdown || 'Nessun testo estratto.';
+
+            // Popola il form con i dati del verbale
+            currentVerbaleData = data.verbale_data || {};
+            for (const key in currentVerbaleData) {
+                if (editForm.elements[key]) {
+                    editForm.elements[key].value = currentVerbaleData[key];
+                }
+            }
+
+            // Nascondi la sezione upload e mostra la sezione modifica
+            uploadSection.style.display = 'none';
+            editSection.style.display = 'block';
+        }
+
+        // La funzione editData non è più necessaria in questo flusso, i dati vengono mostrati direttamente per la modifica dopo l'OCR
+
+        async function saveChanges() {
+            const editForm = document.getElementById('editForm');
+            const formData = new FormData(editForm);
+            const editedData = {};
+            formData.forEach((value, key) => {
+                editedData[key] = value;
+            });
+
+            // Aggiorna i dati correnti del verbale
+            currentVerbaleData = editedData;
+
+            // Qui potresti inviare i dati modificati al backend se necessario per la persistenza
+            // Per ora, li teniamo solo in memoria per la generazione del documento
+
+            alert('Modifiche salvate localmente.');
+            cancelEdit(); // Torna alla visualizzazione (che ora mostrerà i dati salvati localmente)
+        }
+
+        function cancelEdit() {
+            const uploadSection = document.querySelector('section'); // Assumendo che la sezione upload sia la prima
+            const editSection = document.getElementById('editSection');
+            // Torna alla sezione upload o mostra i dati salvati localmente
+            // Per semplicità, torniamo alla sezione upload per ora
+            uploadSection.style.display = 'block';
+            editSection.style.display = 'none';
+        }
+
+        async function generateDocument() {
+             // Usa i dati del verbale correnti (modificati o iniziali)
+             const dataToGenerate = JSON.stringify(currentVerbaleData);
+
+            try {
+                const response = await fetch('/generate_document', {
+                    method: 'POST',
+                     headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: dataToGenerate
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Errore HTTP! stato: ${response.status}`);
+                }
+
+                // Assuming the backend sends the file as a blob
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'verbale_generato.docx'; // Nome file suggerito
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+
+            } catch (error) {
+                console.error('Errore durante la generazione del documento:', error);
+                alert('Errore durante la generazione del documento.');
+            }
+        }
+
+    </script>
+</body>
+</html>
