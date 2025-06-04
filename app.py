@@ -123,6 +123,7 @@ def genera_testo_verbale(
     segretario,
     ordine_del_giorno,
     altri_presenti,
+    tipo_convocazione,
     testo_libero=None
 ):
     if testo_libero:
