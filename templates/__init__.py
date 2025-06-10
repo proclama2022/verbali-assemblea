@@ -1,0 +1,1 @@
+# Cartella template per il sistema di gestione documenti legali 
