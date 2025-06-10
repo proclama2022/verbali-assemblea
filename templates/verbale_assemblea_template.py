@@ -218,6 +218,8 @@ class VerbaleApprovazioneBilancioTemplate(DocumentTemplate):
                             st.warning("⚠️ Anteprima molto breve - possibile errore nei dati")
                             st.code(preview_text)
                         else:
+                            st.success("✅ Anteprima generata correttamente")
+                            
                     # Campo di testo modificabile per l'anteprima
                     edited_preview_text = st.text_area(
                         "Modifica l'anteprima qui (il documento finale userà questo testo):",

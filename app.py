@@ -378,6 +378,9 @@ def main():
         st.info("👈 Seleziona prima un template dalla sidebar per iniziare")
         return
 
+# Get selected template from session state
+selected_template = st.session_state.get('selected_template_type')
+
 # Passo 3: Genera il Documento
 if selected_template and st.session_state.get('extracted_data'):
     with st.expander("📄 Passo 3: Genera il Documento", expanded=True):
