@@ -2,401 +2,832 @@ import streamlit as st
 import os
 from dotenv import load_dotenv
 from mistralai import Mistral
-from docx import Document
-from datetime import datetime, date
-import PyPDF2
-import json
-import io
 import pandas as pd
-from packaging import version
-import re
+from datetime import date
+import sys
+
+# Add src directory to path for imports
+sys.path.append('src')
+
+from document_processors import DocumentProcessorFactory
+from document_templates import DocumentTemplateFactory
+from load_templates import load_all_templates
+from multi_document_processor import MultiDocumentProcessor
 
 # Load environment variables
 load_dotenv()
 api_key = os.environ.get("MISTRAL_API_KEY")
 
-# Inizializza il client Mistral
+# Initialize Mistral client
 client = Mistral(api_key=api_key)
 
-# Controllo versione Streamlit per data_editor avanzato
-if version.parse(st.__version__) < version.parse("1.25.0"):
-    st.error("La funzione 'st.data_editor' con 'num_rows' richiede Streamlit >= 1.25.0. Aggiorna Streamlit con 'pip install --upgrade streamlit'.")
+# Page configuration
+st.set_page_config(
+    page_title="Sistema di Gestione Documenti Legali",
+    page_icon="📄",
+    layout="wide"
+)
 
-def extract_visura_info(text):
-    """Estrae le informazioni rilevanti dalla visura camerale."""
-    info = {
-        "denominazione": "",
-        "sede_legale": "",
-        "pec": "",
-        "codice_fiscale": "",
-        "forma_giuridica": "",
-        "rappresentante": "",
-        "capitale_sociale": "",
-        "soci": [],
-        "amministratori": [],
-        "sindaci": [],
-    }
-    prompt = f"""Estrai le seguenti informazioni dalla visura camerale, rispondendo SOLO con un dizionario JSON:
-    - denominazione (nome completo dell'azienda)
-    - sede_legale (indirizzo completo)
-    - pec (indirizzo PEC)
-    - codice_fiscale
-    - forma_giuridica
-    - rappresentante (nome del rappresentante legale)
-    - capitale_sociale (se presente)
-    - soci: lista di oggetti con chiavi 'nome', 'quota_percentuale', 'quota_euro' (es: [{{"nome": "Mario Rossi", "quota_percentuale": "50%", "quota_euro": "5000"}}, ...])
-    - amministratori: lista di oggetti con chiavi 'nome', 'carica' (es: [{{"nome": "Mario Rossi", "carica": "Amministratore Unico"}}, ...])
-    - sindaci: lista di oggetti con chiavi 'nome', 'carica' (es: [{{"nome": "Luca Bianchi", "carica": "Presidente Collegio Sindacale"}}, ...])
-
-    Testo della visura:
-    {text}
-    
-    Rispondi SOLO con il dizionario JSON, senza altro testo."""
-    messages = [
-        {"role": "user", "content": prompt}
-    ]
-    chat_response = client.chat.complete(
-        model="mistral-small-latest",
-        messages=messages,
-        temperature=0
-    )
+# Load all available templates (removed cache to fix the issue)
+def load_templates():
+    """Load templates and return status"""
     try:
-        response_text = chat_response.choices[0].message.content
-        json_start = response_text.find('{')
-        json_end = response_text.rfind('}')
-        if json_start != -1 and json_end != -1:
-            json_string = response_text[json_start : json_end + 1]
-            extracted_info = json.loads(json_string)
-            info.update(extracted_info)
-        else:
-            st.error("Impossibile trovare un blocco JSON valido nella risposta dell'API.")
-            st.text(response_text)
-    except json.JSONDecodeError as e:
-        st.error(f"Errore nel decodificare la risposta JSON estratta: {e}")
-        st.text(json_string)
+        loaded = load_all_templates()
+        available = DocumentTemplateFactory.get_available_templates()
+        return len(loaded), available
     except Exception as e:
-        st.error(f"Errore nell'estrazione delle informazioni (generico): {e}")
-        st.text(response_text)
-    return info
+        st.error(f"Errore nel caricamento template: {e}")
+        return 0, []
 
-def compile_verbale(info):
-    """Compila il verbale con le informazioni estratte."""
-    doc = Document("templates/template.docx")
+def display_progress_bar():
+    """Display progress indicator showing current step"""
+    # Check current state
+    document_loaded = 'document_text' in st.session_state and st.session_state.document_text
+    info_extracted = 'extracted_info' in st.session_state and st.session_state.extracted_info
+    multi_doc_mode = st.session_state.get('multi_document_mode', False)
+    manual_selection_completed = st.session_state.get('manual_selection_completed', False)
     
-    # Sostituisci i campi nel template
-    for paragraph in doc.paragraphs:
-        text = paragraph.text
-        text = text.replace("[DENOMINAZIONE]", info["denominazione"])
-        text = text.replace("[SEDE]", info["sede_legale"])
-        text = text.replace("[CAPITALE_SOCIALE]", info["capitale_sociale"])
-        text = text.replace("[CODICE_FISCALE]", info["codice_fiscale"])
-        text = text.replace("[DATA]", datetime.now().strftime("%d/%m/%Y"))
-        paragraph.text = text
+    # Create progress indicator
+    st.markdown("### 🔄 Progresso Elaborazione")
     
-    # Salva il documento compilato
-    output_path = "verbale_compilato.docx"
-    doc.save(output_path)
-    return output_path
-
-# Funzione per estrarre testo con PyPDF2
-def estrai_testo_pypdf2(pdf_bytes):
-    testo = ""
-    try:
-        reader = PyPDF2.PdfReader(io.BytesIO(pdf_bytes))
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                testo += page_text + "\n"
-    except Exception as e:
-        testo = ""
-    return testo
-
-def genera_testo_verbale(
-    denominazione,
-    sede,
-    capitale_sociale,
-    codice_fiscale,
-    data,
-    ora,
-    luogo,
-    presidente,
-    segretario,
-    ordine_del_giorno,
-    altri_presenti,
-    testo_libero=None
-):
-    if testo_libero:
-        return testo_libero
-    return f"""
-{denominazione}
-Sede in {sede}
-Capitale sociale Euro {capitale_sociale} i.v.
-Codice fiscale: {codice_fiscale}
-
-Verbale di assemblea dei soci
-del {data}
-
-Oggi {data} alle ore {ora} presso la sede sociale {luogo}, si è tenuta l'assemblea generale dei soci, per discutere e deliberare sul seguente:
-Ordine del giorno
-{ordine_del_giorno}
-Assume la presidenza ai sensi dell'art. […] dello statuto sociale il Sig. {presidente}, il quale dichiara e constata:
-1 - che l'intervento all'assemblea può avvenire anche in audioconferenza
-2 - che sono presenti/partecipano all'assemblea: {altri_presenti}
-I presenti all'unanimità chiamano a fungere da segretario il signor {segretario}, che accetta l'incarico.
-Il Presidente identifica tutti i partecipanti e si accerta che ai soggetti collegati mediante mezzi di telecomunicazione sia consentito seguire la discussione, trasmettere e ricevere documenti, intervenire in tempo reale, con conferma da parte di ciascun partecipante.
-Il Presidente constata e fa constatare che l'assemblea risulta {tipo_convocazione} e deve ritenersi valida ed atta a deliberare sul citato ordine del giorno.\nSi passa quindi allo svolgimento dell'ordine del giorno.\n*     *     *\n"
-In relazione al primo punto il presidente legge il bilancio al {data} composto da stato patrimoniale, conto economico e nota integrativa (allegati di seguito al presente verbale).
-Segue breve discussione tra i soci al termine della quale si passa alla votazione con voto palese in forza della quale il Presidente constata che, all'unanimità, l'assemblea delibera l'approvazione del bilancio di esercizio chiuso al {data} e dei relativi documenti che lo compongono.
-*     *     *
-In relazione al secondo punto posto all'ordine del giorno, il Presidente propone all'assemblea di così destinare il risultato d'esercizio:
-[……………………………………]
-[……………………………………]
-[……………………………………]
-*     *     *
-Il Presidente constata che l'ordine del giorno è esaurito e che nessuno chiede la parola.
-Viene quindi redatto il presente verbale e dopo averne data lettura, il Presidente constata che l'assemblea all'unanimità, con voto palese, ne approva il testo.
-L'assemblea viene sciolta alle ore {ora}.
-"""
-
-# Streamlit UI
-st.title("Generatore Verbali da Visura Camerale")
-
-# Spiegazione dell'app
-st.write("""
-Questa applicazione ti permette di:
-1. Caricare una visura camerale
-2. Estrarre automaticamente le informazioni rilevanti
-3. Generare un verbale di assemblea pre-compilato
-""")
-
-# File uploader per la visura
-uploaded_file = st.file_uploader("Carica la visura camerale (testo o PDF)", type=["txt", "pdf"])
-
-if uploaded_file is not None:
-    # Determina il tipo di file e leggi il contenuto
-    file_type = uploaded_file.type
-    visura_text = ""
-    testo_pypdf2 = ""
-    testo_ocr = ""
-    scelta = None
-
-    if file_type == "text/plain":
-        visura_text = uploaded_file.getvalue().decode("utf-8")
-    elif file_type == "application/pdf":
-        pdf_bytes = uploaded_file.getvalue()
-        # 1. Estrazione PyPDF2
-        testo_pypdf2 = estrai_testo_pypdf2(pdf_bytes)
-        # 2. Estrazione OCR Mistral
-        st.info("Elaborazione del file PDF tramite OCR di Mistral...")
-        try:
-            uploaded_pdf = client.files.upload(
-                file={
-                    "file_name": uploaded_file.name,
-                    "content": pdf_bytes
-                },
-                purpose="ocr"
-            )
-            ocr_response = client.ocr.process(
-                model="mistral-ocr-latest",
-                document={
-                    "type": "document_url",
-                    "document_url": client.files.get_signed_url(file_id=uploaded_pdf.id).url
-                }
-            )
-            testo_ocr = "".join(page.markdown for page in ocr_response.pages)
-            st.success("OCR completato.")
-        except Exception as e:
-            st.error(f"Errore nell'elaborazione del file PDF con Mistral OCR: {e}")
-            testo_ocr = None
-        # Mostra entrambi i testi
-        if testo_pypdf2.strip():
-            st.subheader("Testo estratto con PyPDF2 (PDF digitale)")
-            st.text_area("Testo PyPDF2", testo_pypdf2, height=200)
-        if testo_ocr and testo_ocr.strip():
-            st.subheader("Testo estratto con Mistral OCR")
-            st.text_area("Testo OCR Mistral", testo_ocr, height=200)
-        # Scelta
-        opzioni = []
-        if testo_pypdf2.strip():
-            opzioni.append("PyPDF2")
-        if testo_ocr and testo_ocr.strip():
-            opzioni.append("Mistral OCR")
-        if opzioni:
-            scelta = st.radio("Quale testo vuoi usare per l'estrazione AI?", opzioni)
-            if scelta == "PyPDF2":
-                visura_text = testo_pypdf2
-            elif scelta == "Mistral OCR":
-                visura_text = testo_ocr
-        else:
-            st.error("Nessun testo estratto dal PDF.")
-            visura_text = None
-
-    # Mostra il testo scelto (se presente)
-    if visura_text is not None and visura_text.strip() != "":
-        with st.expander("Visualizza testo della visura estratto (usato per AI)"):
-            st.text(visura_text)
+    # Progress bar layout - adjust based on mode
+    if multi_doc_mode:
+        col1, col2, col3, col4 = st.columns(4)
         
-        # Initialize session state for info extraction
-        if 'info_extracted' not in st.session_state:
-            st.session_state['info_extracted'] = False
-        if 'info' not in st.session_state:
-            st.session_state['info'] = {}
-
-        # Bottone per estrarre le informazioni
-        if st.button("Estrai informazioni e genera verbale"):
-            with st.spinner("Estrazione informazioni in corso..."):
-                st.session_state.info = extract_visura_info(visura_text)
-            st.session_state.info_extracted = True
-
-        # Display fields after extraction
-        if st.session_state.info_extracted:
-            info = st.session_state.info
-            st.subheader("Modifica e completa i dati del verbale (avanzato)")
-            denominazione = st.text_input("Denominazione", info.get("denominazione", ""))
-            sede = st.text_input("Sede legale", info.get("sede_legale", ""))
-            capitale_sociale = st.text_input("Capitale sociale", info.get("capitale_sociale", ""))
-            codice_fiscale = st.text_input("Codice fiscale", info.get("codice_fiscale", ""))
-            data = st.date_input("Data assemblea")
-            # Data di chiusura del bilancio, default 31/12 anno precedente
-            default_chiusura = date(data.year - 1, 12, 31)
-            data_chiusura = st.date_input("Data chiusura bilancio", default_chiusura)
-            ora = st.text_input("Ora assemblea", "09:00")
-            luogo = st.text_input("Luogo assemblea", sede)
-            tipo_assemblea = st.selectbox("Tipo di assemblea", ["Ordinaria", "Straordinaria"]) 
-            ruolo_presidente = st.selectbox("Ruolo del presidente", ["Amministratore Unico", "Presidente CdA", "Altro"]) 
-            esito_votazione = st.selectbox("Esito votazione", ["Approvato all'unanimità", "Approvato a maggioranza", "Respinto", "Altro"])
-            collegio_sindacale = st.checkbox("Collegio sindacale presente")
-            revisore = st.checkbox("Revisore presente")
-            if revisore:
-                revisore_nome = st.text_input("Nome del revisore contabile", "")
+        with col1:
+            st.info("⏸️ **1. Documento Singolo**")
+            st.caption("Modalità Multi-Documenti attiva")
+        
+        with col2:
+            if st.session_state.get('multi_processor') and st.session_state.multi_processor.processed_documents:
+                st.success("✅ **2. Multi-Documenti**")
+                doc_count = len(st.session_state.multi_processor.processed_documents)
+                st.caption(f"{doc_count} documenti processati")
             else:
-                revisore_nome = ""
-            # Tabelle dinamiche per soci, amministratori, sindaci
-            df_soci = pd.DataFrame(info.get("soci", []))
-            st.markdown("**Soci e quote**")
-            df_soci = st.data_editor(df_soci, num_rows="dynamic")
-            lista_soci = df_soci.to_dict("records")
-            st.markdown("**Amministratori**")
-            df_amm = pd.DataFrame(info.get("amministratori", []))
-            df_amm = st.data_editor(df_amm, num_rows="dynamic")
-            lista_amm = df_amm.to_dict("records")
-            st.markdown("**Sindaci**")
-            df_sindaci = pd.DataFrame(info.get("sindaci", []))
-            df_sindaci = st.data_editor(df_sindaci, num_rows="dynamic")
-            lista_sindaci = df_sindaci.to_dict("records")
-            # Lista dinamica ordine del giorno
-            st.markdown("**Punti all'ordine del giorno** (aggiungi uno per riga)")
-            # Ordine del giorno con data bilancio preimpostata
-            default_odg = f"Approvazione del Bilancio al {data_chiusura.strftime('%d/%m/%Y')} e dei documenti correlati;\nDelibere consequenziali."
-            punti_odg = st.text_area("Ordine del giorno", default_odg)
-            lista_odg = [p.strip() for p in punti_odg.split("\n") if p.strip()]
-            altri_presenti = st.text_area("Altri presenti", "")
-            # Selezione dinamica Presidente e Segretario
-            if lista_amm:
-                options_pres = [a.get('nome', '') for a in lista_amm]
-                presidente = st.selectbox("Seleziona Presidente", options_pres)
+                st.warning("⏳ **2. Multi-Documenti**")
+        
+        with col3:
+            if manual_selection_completed:
+                st.success("✅ **3. Selezione Manuale**")
+                st.caption("Informazioni selezionate")
+            elif st.session_state.get('multi_processor') and st.session_state.multi_processor.processed_documents:
+                st.warning("⏳ **3. Selezione Manuale**")
+                st.caption("Pronti per la selezione")
             else:
-                presidente = st.text_input("Nome presidente", info.get("rappresentante", ""))
-            # Seleziona Segretario tra soci e amministratori
-            options_sec = [item.get('nome', '') for item in lista_soci + lista_amm]
-            if options_sec:
-                segretario = st.selectbox("Seleziona Segretario (soci o amministratori)", options_sec)
+                st.info("⏸️ **3. Selezione Manuale**")
+        
+        with col4:
+            if info_extracted and manual_selection_completed:
+                st.warning("⏳ **4. Genera Documento**")
             else:
-                segretario = st.text_input("Segretario", "")
-            # Opzioni per il secondo punto (parere dei Sindaci e destinazione del risultato d'esercizio)
-            sentito_parere_sindaci = st.checkbox("Sentito il parere favorevole del Collegio Sindacale per il secondo punto", value=True)
-            destinazione_risultato = st.text_area(
-                "Destinazione del risultato d'esercizio / ripiano perdite (uno per riga)",
-                "[Inserisci destinazione del risultato d'esercizio o ripiano perdite]\n[Inserisci eventuale seconda destinazione]\n[Inserisci eventuale terza destinazione]"
-            )
-            lista_destinazioni = [p.strip() for p in destinazione_risultato.split("\n") if p.strip()]
-            # Selezione del tipo di convocazione (regolarmente convocata o totalitaria)
-            tipo_convocazione = st.selectbox(
-                "Tipo di convocazione",
-                ["regolarmente convocata", "totalitaria"]
-            )
-            # Input per gli allegati
-            allegati = st.text_area(
-                "Elenco allegati (uno per riga)",
-                ""
-            )
-            lista_allegati = [a.strip() for a in allegati.split("\n") if a.strip()]
+                st.info("⏸️ **4. Genera Documento**")
+    else:
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if document_loaded:
+                st.success("✅ **1. Documento Caricato**")
+            else:
+                st.info("🔄 **1. Carica Documento**")
+        
+        with col2:
+            if info_extracted:
+                st.success("✅ **2. Informazioni Estratte**")
+            elif document_loaded:
+                st.warning("⏳ **2. Estrai Informazioni**")
+            else:
+                st.info("⏸️ **2. Estrai Informazioni**")
+        
+        with col3:
+            if info_extracted:
+                st.warning("⏳ **3. Genera Documento**")
+            else:
+                st.info("⏸️ **3. Genera Documento**")
+    
+    # Status summary con istruzioni chiare
+    st.markdown("### 🎯 Prossimo Passaggio:")
+    if multi_doc_mode:
+        if info_extracted and manual_selection_completed:
+            st.success("✅ **STEP 4: Genera il documento finale**")
+            st.info("👉 Clicca sulla tab **'📝 Genera'** per creare il verbale")
+        elif st.session_state.get('multi_processor') and st.session_state.multi_processor.processed_documents:
+            st.warning("⏳ **STEP 3: Seleziona le informazioni da utilizzare**")
+            st.info("👉 Vai alla tab **'📑 Multi-Doc'** e completa la selezione manuale")
+        else:
+            st.info("📤 **STEP 2: Carica i tuoi documenti**")
+            st.info("👉 Vai alla tab **'📑 Multi-Doc'** per caricare più documenti")
+    else:
+        if info_extracted:
+            st.success("✅ **STEP 3: Genera il documento finale**")
+            st.info("👉 Clicca sulla tab **'📝 Genera'** per creare il verbale")
+        elif document_loaded:
+            st.warning("⏳ **STEP 2: Estrai le informazioni dal documento**")
+            st.info("👉 Vai alla tab **'🔍 Estrai'** e clicca su 'Estrai Informazioni'")
+        else:
+            st.info("📤 **STEP 1: Carica il tuo documento**")
+            st.info("👉 Vai alla tab **'📤 Carica'** per iniziare")
+    
+    st.markdown("---")
 
-            # Genera testo verbale dinamico secondo schema completo (senza duplicare l'ordine del giorno)
-            testo_verbale = f"""
-{denominazione}
-Sede in {sede}
-Capitale sociale Euro {capitale_sociale} i.v.
-Codice fiscale: {codice_fiscale}
+def main():
+    st.title("📄 Generatore Verbali d'Assemblea")
+    st.markdown("**Crea verbali professionali in 3 semplici passaggi**")
+    
+    # Load templates at startup
+    loaded_count, available_templates = load_templates()
+    
+    if loaded_count > 0:
+        st.info(f"✅ **{loaded_count} tipi di verbale disponibili**")
+    else:
+        st.error("❌ Errore: nessun template trovato")
+    
+    # Simplified progress indicator
+    col1, col2, col3 = st.columns(3)
+    
+    template_selected = st.session_state.get('template_locked', False)
+    info_extracted = st.session_state.get('extracted_info') is not None
+    
+    with col1:
+        if template_selected:
+            st.success("✅ **1. Template Scelto**")
+        else:
+            st.info("🔄 **1. Scegli Template**")
+    
+    with col2:
+        if info_extracted:
+            st.success("✅ **2. Dati Estratti**")
+        elif template_selected:
+            st.warning("⏳ **2. Carica Documento**")
+        else:
+            st.info("⏸️ **2. Carica Documento**")
+    
+    with col3:
+        if info_extracted:
+            st.warning("⏳ **3. Genera Verbale**")
+        else:
+            st.info("⏸️ **3. Genera Verbale**")
+    
+    # SIDEBAR SEMPLIFICATA
+    with st.sidebar:
+        st.header("🎯 Scegli Template")
+        
+        if available_templates:
+            # Mapping semplificato
+            template_names = {
+                'verbale_assemblea_template': 'Verbale Standard',
+                'verbale_assemblea_nomina_amministratori_template': 'Nomina Amministratori',
+                'verbale_assemblea_revoca_nomina_template': 'Revoca e Nomina',
+                'verbale_assemblea_nomina_collegio_sindacale_template': 'Nomina Collegio Sindacale',
+                'verbale_assemblea_nomina_revisore_template': 'Nomina Revisore',
+                'verbale_assemblea_ratifica_operato_template': 'Ratifica Operato',
+                'verbale_assemblea_revoca_sindaci_template': 'Revoca Sindaci',
+                'verbale_assemblea_dividendi_template': 'Distribuzione Dividendi',
+                'verbale_assemblea_rimborsi_spese_template': 'Rimborsi Spese',
+                'verbale_assemblea_irregolare_template': 'Assemblea Irregolare',
+                'verbale_assemblea_completo_template': 'Verbale Completo',
+                'verbale_assemblea_generico_template': 'Verbale Generico',
+                'verbale_assemblea_amministratore_unico_template': 'Amministratore Unico',
+                'verbale_assemblea_correzioni_template': 'Correzioni',
+                'verbale_assemblea_consiglio_amministrazione_template': 'Consiglio Amministrazione'
+            }
+            
+            if not st.session_state.get('template_locked', False):
+                # Selezione template
+                template_options = [(t, template_names.get(t, t)) for t in available_templates]
+                
+                selected = st.selectbox(
+                    "Tipo di verbale:",
+                    template_options,
+                    format_func=lambda x: x[1],
+                    index=None,
+                    placeholder="Seleziona..."
+                )
+                
+                if selected and st.button("✅ Conferma", type="primary", use_container_width=True):
+                    st.session_state.selected_template_type = selected[0]
+                    st.session_state.template_locked = True
+                    st.rerun()
+                    
+            else:
+                # Template confermato
+                template_type = st.session_state.selected_template_type
+                st.success(f"✅ {template_names.get(template_type, template_type)}")
+                
+                if st.button("🔄 Cambia Template", use_container_width=True):
+                    for key in ['selected_template_type', 'template_locked', 'document_text', 'extracted_info']:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    st.rerun()
+        
+        st.markdown("---")
+        
+        # Tipo documento
+        available_document_types = DocumentProcessorFactory.get_available_types()
+        document_type = st.selectbox(
+            "Tipo documento da caricare:",
+            available_document_types,
+            format_func=lambda x: x.replace('_', ' ').title()
+        )
 
-Verbale di assemblea dei soci
-del {data.strftime('%d/%m/%Y')}
+    # Controlla che il template sia selezionato
+    if not st.session_state.get('template_locked', False):
+        st.info("👈 Seleziona un template nella sidebar per iniziare")
+        return
+        
+    # Usa il template selezionato e bloccato
+    template_type = st.session_state.selected_template_type
+    
+    # AREA PRINCIPALE SEMPLIFICATA
+    if template_type:
+        # Passo 1: Carica Documento
+        st.markdown("### 📤 Passo 1: Carica il Documento")
+        
+        uploaded_file = st.file_uploader(
+            "Carica il documento da cui estrarre le informazioni:",
+            type=['pdf', 'txt', 'docx'],
+            key="file_uploader"
+        )
+        
+        if uploaded_file:
+            st.success(f"✅ File caricato: {uploaded_file.name}")
+            
+            # Estrazione automatica del testo
+            if st.button("🔍 Estrai Testo", type="primary"):
+                with st.spinner("Estrazione testo in corso..."):
+                    try:
+                        file_extension = uploaded_file.name.split('.')[-1].lower()
+                        
+                        if file_extension == 'pdf':
+                            pdf_reader = PyPDF2.PdfReader(uploaded_file)
+                            text = ""
+                            for page in pdf_reader.pages:
+                                text += page.extract_text() + "\n"
+                        elif file_extension == 'txt':
+                            text = str(uploaded_file.read(), "utf-8")
+                        else:
+                            text = "[Formato non supportato completamente]"
+                        
+                        st.session_state.document_text = text
+                        st.success("✅ Testo estratto!")
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"Errore: {str(e)}")
+        
+        # Passo 2: Estrai Informazioni
+        if st.session_state.get('document_text'):
+            st.markdown("---")
+            st.markdown("### 🔍 Passo 2: Estrai Informazioni")
+            
+            with st.expander("📄 Testo Estratto", expanded=False):
+                st.text_area(
+                    "Contenuto:",
+                    st.session_state.document_text[:1000] + "..." if len(st.session_state.document_text) > 1000 else st.session_state.document_text,
+                    height=150,
+                    disabled=True
+                )
+            
+            if st.button("🤖 Estrai Informazioni", type="primary"):
+                with st.spinner("Estrazione informazioni..."):
+                    try:
+                        processor = DocumentProcessorFactory.create_processor(document_type)
+                        extracted_info = processor.extract_information(
+                            st.session_state.document_text,
+                            template_type
+                        )
+                        st.session_state.extracted_info = extracted_info
+                        st.success("✅ Informazioni estratte!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Errore: {str(e)}")
+        
+        # Passo 3: Modifica e Genera
+        if st.session_state.get('extracted_info'):
+            st.markdown("---")
+            st.markdown("### ✏️ Passo 3: Modifica e Genera")
+            
+            # Form per modificare le informazioni
+            with st.form("edit_info"):
+                st.markdown("**Modifica le informazioni estratte:**")
+                
+                edited_info = {}
+                for key, value in st.session_state.extracted_info.items():
+                    if isinstance(value, list):
+                        # Handle both string lists and dictionary lists
+                        if value and isinstance(value[0], dict):
+                            list_text = '\n'.join(
+                                ', '.join(f"{k_item}: {v_item}" for k_item, v_item in item.items())
+                                for item in value
+                            )
+                        else: # For inner if
+                            list_text = '\n'.join(str(item) for item in value) if value else ''
 
-Oggi {data.strftime('%d/%m/%Y')} alle ore {ora} presso la sede sociale {luogo}, si è tenuta l'assemblea generale dei soci, per discutere e deliberare sul seguente:
-Ordine del giorno:
-"""
-            # Aggiungo il corpo dinamico del verbale
-            for idx, punto in enumerate(lista_odg, 1):
-                testo_verbale += f"\n{idx}. {punto}"
-            # Inserisco prima le dichiarazioni del presidente e poi elenco i partecipanti
-            # Dichiarazioni del presidente
-            testo_verbale += f"\n\nAssume la presidenza ai sensi dell'art. […] dello statuto sociale il Sig. {presidente} ({ruolo_presidente}), il quale dichiara e constata:\n"
-            testo_verbale += "1 - che (come indicato anche nell'avviso di convocazione ed in conformità alle previsioni dell'art. […] dello statuto sociale) l'intervento all'assemblea può avvenire anche in audioconferenza\n"
-            testo_verbale += "2 - che sono presenti/partecipano all'assemblea i soci e gli amministratori come di seguito indicati.\n"
-            testo_verbale += f"I presenti all'unanimità chiamano a fungere da segretario il signor {segretario}, che accetta l'incarico.\n"
-            # Elenco dei partecipanti (soci e amministratori)
-            testo_verbale += "\n\nSoci presenti e quote:\n"
-            for socio in lista_soci:
-                testo_verbale += f"- {socio.get('nome','')} (Quota: {socio.get('quota_percentuale','')} - Euro {socio.get('quota_euro','')})\n"
-            testo_verbale += "\nAmministratori:\n"
-            for amm in lista_amm:
-                testo_verbale += f"- {amm.get('nome','')} ({amm.get('carica','')})\n"
-            testo_verbale += "Il Presidente identifica tutti i partecipanti e si accerta che ai soggetti collegati mediante mezzi di telecomunicazione sia consentito seguire la discussione, trasmettere e ricevere documenti, intervenire in tempo reale, con conferma da parte di ciascun partecipante.\n"
-            testo_verbale += f"Il Presidente constata e fa constatare che l'assemblea risulta {tipo_convocazione} e deve ritenersi valida ed atta a deliberare sul citato ordine del giorno.\nSi passa quindi allo svolgimento dell'ordine del giorno.\n*     *     *\n"
-            testo_verbale += f"In relazione al primo punto il presidente legge il bilancio al {data_chiusura.strftime('%d/%m/%Y')} composto da stato patrimoniale, conto economico e nota integrativa (allegati di seguito al presente verbale).\n"
-            testo_verbale += f"Segue breve discussione tra i soci al termine della quale si passa alla votazione con voto palese in forza della quale il Presidente constata che, {esito_votazione.lower()}, l'assemblea delibera l'approvazione del bilancio di esercizio chiuso al {data_chiusura.strftime('%d/%m/%Y')} e dei relativi documenti che lo compongono.\n*     *     *\n"
-            testo_verbale += f"In relazione al secondo punto posto all'ordine del giorno, il Presidente"
-            if sentito_parere_sindaci:
-                testo_verbale += ", <sentito il parere favorevole del Collegio Sindacale>"
-            testo_verbale += ", propone all'assemblea di così destinare il risultato d'esercizio:\n"
-            for dest in lista_destinazioni:
-                testo_verbale += f"{dest}\n"
-            testo_verbale += "*     *     *\n"
-            testo_verbale += "Il Presidente constata che l'ordine del giorno è esaurito e che nessuno chiede la parola.\nViene quindi redatto il presente verbale e dopo averne data lettura, il Presidente constata che l'assemblea all'unanimità, con voto palese, ne approva il testo [eventualmente unitamente a quanto allegato].\n"
-            testo_verbale += f"L'assemblea viene sciolta alle ore {ora}."
-            # Aggiungo elenco allegati se presenti
-            if lista_allegati:
-                testo_verbale += "\n\nAllegati:\n"
-                for allegato in lista_allegati:
-                    testo_verbale += f"- {allegato}\n"
-            # Inserisco le firme alla fine del verbale
-            testo_verbale += "\nIl Presidente:\n__________________________\n\nIl Segretario:\n__________________________\n"
-            testo_verbale = st.text_area("Testo verbale finale (modificabile)", testo_verbale, height=500)
-            if st.button("Genera e scarica verbale Word"):
-                doc = Document()
-                # Generazione con formattazione: heading, liste numerate e bullet
-                for par in testo_verbale.split("\n"):
-                    stripped = par.strip()
-                    # Numerazione punti ordine del giorno
-                    if re.match(r"^\d+\.\s", stripped):
-                        doc.add_paragraph(stripped, style="List Number")
-                    # Bullet list (soci, amministratori, allegati)
-                    elif stripped.startswith("- "):
-                        doc.add_paragraph(stripped[2:].strip(), style="List Bullet")
-                    # Sezione con due punti
-                    elif stripped.endswith(":"):
-                        doc.add_paragraph(stripped, style="Heading 2")
-                    else:
-                        doc.add_paragraph(stripped)
-                output_path = "verbale_compilato.docx"
-                doc.save(output_path)
-                with open(output_path, "rb") as file:
-                    st.download_button(
-                        label="Scarica verbale compilato",
-                        data=file,
-                        file_name="verbale_compilato.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        current_text_value = st.text_area(
+                            label=key.replace('_', ' ').title(),
+                            value=list_text,
+                            height=80,
+                            key=f"text_area_{key}" 
+                        )
+                        edited_info[key] = [line.strip() for line in current_text_value.split('\n') if line.strip()]
+                    else: # For outer if isinstance(value, list)
+                        edited_info[key] = st.text_input(
+                            label=key.replace('_', ' ').title(),
+                            value=str(value) if value else "",
+                            key=f"text_input_{key}"
+                        )
+                
+                if st.form_submit_button("💾 Salva Modifiche"):
+                    st.session_state.extracted_info = edited_info
+                    st.success("✅ Modifiche salvate!")
+                    st.rerun()
+            
+            # Generazione documento
+            st.markdown("**Genera il documento finale:**")
+            
+            if st.button("📝 Genera Verbale", type="primary", use_container_width=True):
+                with st.spinner("Generazione documento..."):
+                    try:
+                        generator = DocumentGenerator('templates')
+                        output_path = generator.generate_document(
+                            template_type,
+                            st.session_state.extracted_info
+                        )
+                        
+                        st.session_state.generated_document_path = output_path
+                        st.session_state.generated_document_name = os.path.basename(output_path)
+                        
+                        st.success(f"✅ Documento generato!")
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"Errore: {str(e)}")
+            
+            # Download
+            if st.session_state.get('generated_document_path'):
+                if os.path.exists(st.session_state.generated_document_path):
+                    with open(st.session_state.generated_document_path, 'rb') as file:
+                        st.download_button(
+                            label="📥 Scarica Documento",
+                            data=file.read(),
+                            file_name=st.session_state.generated_document_name,
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            type="primary",
+                            use_container_width=True
+                        )
+    else:
+        st.info("👈 Seleziona prima un template dalla sidebar per iniziare")
+        return
+    
+    # Layout lineare semplificato
+    st.markdown("---")
+    
+    # Step 1: Upload Document
+    st.header("📤 Passo 1: Carica il Documento")
+    
+    uploaded_file = st.file_uploader(
+        "Seleziona il file PDF o di testo da elaborare",
+        type=["pdf", "txt"],
+        help="Carica il documento da cui estrarre le informazioni per il verbale"
+    )
+
+    st.markdown("**Oppure incolla il testo direttamente qui:**")
+    pasted_text = st.text_area(
+        "Incolla il testo qui",
+        height=200,
+        help="Incolla il testo da cui estrarre le informazioni"
+    )
+
+    process_pasted_text_button = st.button("Elabora Testo Incollato", type="secondary")
+    
+    if uploaded_file is not None:
+        st.success(f"✅ File caricato: {uploaded_file.name}")
+        
+        # Store file in session state
+        if 'uploaded_file' not in st.session_state or st.session_state.uploaded_file != uploaded_file:
+            st.session_state.uploaded_file = uploaded_file
+            st.session_state.document_text = None
+            st.session_state.extracted_info = None
+        
+        # Process file
+        processor = DocumentProcessorFactory.create_processor(document_type, client)
+        try:
+            if uploaded_file.type == "text/plain":
+                document_text = uploaded_file.getvalue().decode("utf-8")
+                st.session_state.document_text = document_text
+                st.success("✅ Testo estratto con successo")
+                
+            elif uploaded_file.type == "application/pdf":
+                pdf_bytes = uploaded_file.getvalue()
+                
+                with st.spinner("🔄 Estrazione testo dal PDF..."):
+                    pypdf2_text, ocr_text = processor.extract_text_from_pdf(pdf_bytes)
+                
+                # Selezione metodo estrazione
+                options = []
+                if pypdf2_text.strip():
+                    options.append(("🔤 Testo digitale (raccomandato)", pypdf2_text))
+                if ocr_text.strip():
+                    options.append(("📷 Riconoscimento ottico (OCR)", ocr_text))
+                
+                if options:
+                    choice = st.radio(
+                        "Scegli il metodo di estrazione del testo:",
+                        options,
+                        format_func=lambda x: x[0]
                     )
+                    st.session_state.document_text = choice[1]
+                    st.success("✅ Testo estratto con successo")
+                else:
+                    st.error("❌ Impossibile estrarre testo dal documento")
+                    st.session_state.document_text = None
+            
+            # Show extracted text preview
+            if st.session_state.document_text:
+                with st.expander("👁️ Anteprima del testo estratto"):
+                    st.text_area(
+                        "Contenuto che verrà elaborato:", 
+                        st.session_state.document_text[:1000] + "..." if len(st.session_state.document_text) > 1000 else st.session_state.document_text, 
+                        height=200,
+                        disabled=True
+                    )
+                    
+        except Exception as e:
+            st.error(f"❌ Errore durante l'elaborazione: {e}")
+    elif process_pasted_text_button and pasted_text:
+        st.session_state.document_text = pasted_text
+        st.success("✅ Testo incollato elaborato con successo!")
+        st.session_state.extracted_info = None # Reset extracted info to force re-extraction
+        st.rerun()
+    elif process_pasted_text_button and not pasted_text:
+        st.warning("⚠️ Incolla del testo nell'area di testo prima di elaborare.")
+    
+    # Step 2: Extract Information
+    st.markdown("---")
+    st.header("🔍 Passo 2: Estrai le Informazioni")
+    
+    if 'document_text' not in st.session_state or not st.session_state.document_text:
+        st.info("⬆️ Carica prima un documento nel Passo 1")
+    else:
+        processor = DocumentProcessorFactory.create_processor(document_type, client)
+        
+        if st.button("🚀 Avvia Estrazione Automatica", type="primary", use_container_width=True):
+            with st.spinner("🤖 Analisi del documento in corso..."):
+                extracted_info = processor.extract_information(st.session_state.document_text)
+                st.session_state.extracted_info = extracted_info
+            st.success("✅ Estrazione completata!")
+            st.rerun()
+        
+        # Show extracted information
+        if 'extracted_info' in st.session_state and st.session_state.extracted_info:
+            st.success("✅ **Informazioni estratte con successo!**")
+            
+            with st.form("edit_extracted_info"):
+                st.subheader("✏️ Verifica e Modifica le Informazioni")
+                
+                extracted_data = st.session_state.extracted_info.copy()
+                edited_data = {}
+                
+                # Create columns for better layout
+                col1, col2 = st.columns(2)
+                
+                simple_fields = []
+                list_fields = []
+                
+                # Separate simple and complex fields
+                for key, value in extracted_data.items():
+                    if isinstance(value, list):
+                        list_fields.append((key, value))
+                    else:
+                        simple_fields.append((key, value))
+                
+                # Simple fields in columns
+                for i, (key, value) in enumerate(simple_fields):
+                    with col1 if i % 2 == 0 else col2:
+                        edited_data[key] = st.text_input(
+                            key.replace('_', ' ').title(),
+                            value=str(value) if value else "",
+                            key=f"input_{key}"
+                        )
+                
+                # List fields full width
+                for key, value in list_fields:
+                    st.markdown(f"**{key.replace('_', ' ').title()}:**")
+                    if value:
+                        df = pd.DataFrame(value)
+                        edited_df = st.data_editor(
+                            df, 
+                            num_rows="dynamic", 
+                            key=f"editor_{key}",
+                            use_container_width=True
+                        )
+                        edited_data[key] = edited_df.to_dict('records')
+                    else:
+                        edited_data[key] = []
+                
+                # Save modifications
+                if st.form_submit_button("💾 Conferma Modifiche", type="primary", use_container_width=True):
+                    st.session_state.extracted_info = edited_data
+                    st.success("✅ Modifiche salvate!")
+                    st.rerun()
+    
+    # Step 3: Generate Document
+    st.markdown("---")
+    st.header("📝 Passo 3: Genera il Documento")
+    
+    if template_type is None:
+        st.warning("⚠️ Nessun template disponibile")
+        st.info("💡 Per aggiungere template, crea file Python nella cartella `templates/` seguendo l'esempio")
+        
+        # Debug info
+        with st.expander("🔧 Debug Template"):
+            st.write(f"Template caricati: {loaded_count}")
+            st.write(f"Template disponibili: {available_templates}")
+            
+            if st.button("🔄 Ricarica Template Debug"):
+                new_count, new_templates = load_templates()
+                st.write(f"Nuovo caricamento: {new_count} template, {new_templates}")
+                
+    elif 'extracted_info' not in st.session_state or not st.session_state.extracted_info:
+        st.warning("⚠️ Estrai prima le informazioni nel Passo 2")
+        st.info("👆 Completa i passaggi precedenti per procedere")
+        
+        # Show what's missing
+        if 'document_text' not in st.session_state or not st.session_state.document_text:
+            st.error("❌ **Manca:** Documento caricato")
+        else:
+            st.success("✅ **Disponibile:** Documento caricato")
+            
+        st.error("❌ **Manca:** Informazioni estratte")
+        
+    else:
+        st.success("🎯 **Tutto pronto per la generazione del documento!**")
+        
+        try:
+            template = DocumentTemplateFactory.create_template(template_type)
+            
+            st.info(f"📄 Generazione: **{template.get_template_name()}**")
+            
+            # Crea form_data FUORI dal form per renderli disponibili all'anteprima
+            # Questa chiamata crea i widget del form e restituisce i dati aggiornati
+            form_data = template.get_form_fields(st.session_state.extracted_info)
+            
+            # Anteprima SEMPRE disponibile fuori dal form
+            template.show_preview(form_data)
+            
+            # Show template form
+            with st.form("template_form"):
+                st.markdown("**⚙️ I dati sono configurati sopra. Clicca per generare il documento:**")
+                
+                col1, col2, col3 = st.columns([1, 1, 1])
+                with col2:
+                    generate_button = st.form_submit_button("📝 Genera Documento", type="primary", use_container_width=True)
+                
+                if generate_button:
+                    try:
+                        with st.spinner("🔄 Generazione documento in corso..."):
+                            # Rigenera form_data con i valori attuali prima di generare
+                            # (Questo è necessario perché i widget potrebbero essere cambiati dall'utente)
+                            current_form_data = {}
+                            
+                            # Recupera i valori dai widget di Streamlit usando le chiavi
+                            for key in form_data.keys():
+                                if key in st.session_state:
+                                    current_form_data[key] = st.session_state[key]
+                                else:
+                                    current_form_data[key] = form_data[key]
+                            
+                            # Generate document
+                            doc = template.generate_document(current_form_data)
+                            
+                            # Save document
+                            output_path = f"output/{template_type}_generated.docx"
+                            os.makedirs("output", exist_ok=True)
+                            doc.save(output_path)
+                            
+                            # Store in session state for download outside form
+                            st.session_state.generated_document_path = output_path
+                            st.session_state.generated_document_name = f"{template_type}_{date.today().strftime('%Y%m%d')}.docx"
+                        
+                        st.success("✅ Documento generato con successo!")
+                        st.balloons()  # Celebration effect
+                        st.info("🔄 **Processo completato!** Puoi iniziare un nuovo documento con 'Cancella Tutto' nella sidebar")
+                        st.rerun()  # Rerun to show download button
+                        
+                    except Exception as e:
+                        st.error(f"❌ Errore nella generazione del documento: {e}")
+                        st.exception(e)
+            
+            # Download button OUTSIDE the form
+            if 'generated_document_path' in st.session_state and os.path.exists(st.session_state.generated_document_path):
+                st.success("📄 **Documento pronto per il download!**")
+                
+                # Provide download
+                with open(st.session_state.generated_document_path, "rb") as file:
+                    col1, col2, col3 = st.columns([1, 1, 1])
+                    with col2:
+                        download_success = st.download_button(
+                            label="⬇️ Scarica Documento",
+                            data=file,
+                            file_name=st.session_state.generated_document_name,
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            use_container_width=True
+                        )
+                
+                # Clear the generated document from session after showing download
+                if download_success:
+                    if 'generated_document_path' in st.session_state:
+                        del st.session_state['generated_document_path']
+                    if 'generated_document_name' in st.session_state:
+                        del st.session_state['generated_document_name']
+                        
+        except ValueError as e:
+            st.error(f"❌ {str(e)}")
+    
+    # Advanced Multi-Document Section
+    st.markdown("---")
+    with st.expander("🔧 Modalità Avanzata: Multi-Documenti", expanded=False):
+        st.subheader("📑 Estrazione Multi-Documenti")
+        st.markdown("**Carica diversi documenti ed estrai le informazioni separatamente, poi scegli manualmente quali utilizzare**")
+        
+        # Initialize multi-document processor in session state
+        if 'multi_processor' not in st.session_state:
+            st.session_state.multi_processor = MultiDocumentProcessor(client)
+        
+        multi_processor = st.session_state.multi_processor
+        
+        # Get processing summary
+        summary = multi_processor.get_processing_summary()
+        
+        # Status display - simplified
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("📄 Documenti", summary["total_documents"])
+        with col2:
+            processed_types = len(set(summary["document_types"])) if summary["document_types"] else 0
+            st.metric("🔢 Tipi", processed_types)
+        with col3:
+            manual_selection_done = 'extracted_info' in st.session_state and st.session_state.extracted_info and st.session_state.get('manual_selection_completed', False)
+            selection_status = "✅ Completata" if manual_selection_done else "❌ Da fare"
+            st.metric("🎯 Selezione", selection_status)
+        
+        # Document upload section
+        st.subheader("📤 Carica e Elabora Documenti")
+        
+        # Multiple file uploader
+        uploaded_files = st.file_uploader(
+            "Carica i tuoi documenti (PDF o TXT)",
+            type=["pdf", "txt"],
+            accept_multiple_files=True,
+            help="Carica documenti aziendali di qualsiasi tipo",
+            key="multi_doc_uploader"
+        )
+        
+        # Process uploaded files with simplified interface
+        if uploaded_files:
+            st.success(f"📁 {len(uploaded_files)} documento/i caricato/i")
+            
+            # Process each file with auto-type detection
+            for i, uploaded_file in enumerate(uploaded_files):
+                col1, col2, col3 = st.columns([2, 1, 1])
+                
+                with col1:
+                    # Auto-suggest document type
+                    if uploaded_file.type == "text/plain":
+                        file_content = uploaded_file.getvalue().decode("utf-8")
+                    else:
+                        file_content = ""
+                    
+                    suggested_type = multi_processor.suggest_document_type(uploaded_file.name, file_content)
+                    
+                    # Find index of suggested type
+                    available_types = DocumentProcessorFactory.get_available_types()
+                    try:
+                        suggested_index = available_types.index(suggested_type)
+                    except ValueError:
+                        suggested_index = 0
+                    
+                    doc_type = st.selectbox(
+                        f"📄 {uploaded_file.name}:",
+                        available_types,
+                        index=suggested_index,
+                        format_func=lambda x: x.replace('_', ' ').title(),
+                        key=f"doc_type_{i}_{uploaded_file.name}",
+                        help=f"Tipo suggerito: {suggested_type.replace('_', ' ').title()}"
+                    )
+                
+                with col2:
+                    st.write(f"**{uploaded_file.size / 1024:.1f} KB**")
+                
+                with col3:
+                    if st.button("🔄 Elabora", key=f"process_btn_{i}_{uploaded_file.name}"):
+                        with st.spinner(f"Elaborazione..."):
+                            file_bytes = uploaded_file.getvalue()
+                            extracted_info = multi_processor.process_document(
+                                file_bytes, uploaded_file.name, doc_type
+                            )
+                            if extracted_info:
+                                st.success(f"✅ Elaborato!")
+                                st.rerun()
+        
+        # Show processed documents with quick stats
+        if summary["total_documents"] > 0:
+            st.subheader("📋 Documenti Elaborati")
+            
+            # Quick overview table
+            if st.session_state.get('template_locked', False):
+                template_type = st.session_state.selected_template_type
+                template_extraction = multi_processor.extract_template_fields_from_documents(template_type)
+                
+                if template_extraction.get("documents"):
+                    # Simple summary table
+                    summary_data = []
+                    for doc in template_extraction["documents"]:
+                        summary_data.append({
+                            "📄 Documento": doc['file_name'],
+                            "📊 Completezza": f"{doc['completeness_percentage']}%",
+                            "✅ Campi": len(doc['available_fields'])
+                        })
+                    
+                    if summary_data:
+                        df = pd.DataFrame(summary_data)
+                        st.dataframe(df, use_container_width=True, hide_index=True)
+            
+            # Individual documents - collapsed by default
+            with st.expander("🔍 Dettagli Documenti", expanded=False):
+                for doc in multi_processor.processed_documents:
+                    st.markdown(f"**📄 {doc['file_name']} ({doc['document_type']})**")
+                    
+                    # Simple info count
+                    info_count = len([k for k, v in doc['extracted_info'].items() if v])
+                    st.caption(f"Informazioni estratte: {info_count}")
+                    st.markdown("---")
+        
+        # Manual selection section - simplified
+        if summary["total_documents"] >= 1 and st.session_state.get('template_locked', False):
+            st.subheader("🎯 Selezione Informazioni")
+            
+            template_type = st.session_state.selected_template_type
+            template_extraction = multi_processor.extract_template_fields_from_documents(template_type)
+            
+            if template_extraction.get("documents"):
+                # Create the simplified manual selection interface
+                selected_data = multi_processor.create_manual_selection_interface(template_extraction)
+                
+                # Single confirm button
+                if st.button("💾 Conferma e Procedi al Documento", type="primary", use_container_width=True):
+                    if selected_data:
+                        final_data = {k: v for k, v in selected_data.items() if v is not None and v != ""}
+                        
+                        if final_data:
+                            st.session_state.extracted_info = final_data
+                            st.session_state.manual_selection_completed = True
+                            st.session_state.multi_document_mode = True
+                            
+                            st.success("✅ Selezione completata!")
+                            st.info("📝 Vai alla tab 'Genera Documento' per creare il verbale.")
+                            st.rerun()
+                        else:
+                            st.warning("⚠️ Seleziona almeno un campo.")
+                    else:
+                        st.warning("⚠️ Nessuna informazione selezionata.")
+            else:
+                st.error("❌ Errore nell'analisi dei documenti")
+        
+        elif summary["total_documents"] < 1:
+            st.info("📤 **Carica almeno 1 documento** per iniziare")
+        elif not st.session_state.get('template_locked', False):
+            st.warning("⚠️ **Seleziona un template** nella sidebar")
+        
+        # Quick clear button
+        if summary["total_documents"] > 0:
+            if st.button("🗑️ Ricomincia", type="secondary"):
+                multi_processor.clear_documents()
+                for key in ['multi_document_mode', 'manual_selection_completed', 'manual_selections']:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                st.success("🗑️ Documenti cancellati")
+                st.rerun()
+    
 
-st.markdown("---")
-st.markdown("Nota: questo è un prototipo. L'estrazione strutturata dei dati dalla visura verrà implementata nel prossimo passo.") 
+    
+    # Footer
+    st.markdown("---")
+    with st.expander("ℹ️ Informazioni Sistema"):
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**📄 Processori Documenti Disponibili:**")
+            for doc_type in DocumentProcessorFactory.get_available_types():
+                st.markdown(f"• {doc_type.replace('_', ' ').title()}")
+        
+        with col2:
+            st.markdown("**📝 Template Disponibili:**")
+            if available_templates:
+                for template in available_templates:
+                    st.markdown(f"• {template.replace('_', ' ').title()}")
+            else:
+                st.markdown("• Nessun template caricato")
+    
+    st.markdown("💡 **Suggerimento:** Segui la barra di progresso in alto per completare tutti i passaggi")
+
+if __name__ == "__main__":
+    main()
