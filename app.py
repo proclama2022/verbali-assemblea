@@ -291,7 +291,7 @@ def main():
             if st.button("🤖 Estrai Informazioni", type="primary"):
                 with st.spinner("Estrazione informazioni..."):
                     try:
-                        processor = DocumentProcessorFactory.create_processor(document_type)
+                        processor = DocumentProcessorFactory.create_processor(document_type, client)
                         extracted_info = processor.extract_information(
                             st.session_state.document_text,
                             template_type
