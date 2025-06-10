@@ -5,6 +5,7 @@ from mistralai import Mistral
 import pandas as pd
 from datetime import date
 import sys
+import PyPDF2
 
 # Add src directory to path for imports
 sys.path.append('src')
