@@ -377,7 +377,6 @@ def main():
     else:
         st.info("👈 Seleziona prima un template dalla sidebar per iniziare")
         return
-                        simple_fields.append((key, value))
                 
                 # Simple fields in columns
                 for i, (key, value) in enumerate(simple_fields):
