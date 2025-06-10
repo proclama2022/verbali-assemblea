@@ -377,36 +377,92 @@ def main():
     else:
         st.info("👈 Seleziona prima un template dalla sidebar per iniziare")
         return
+
+# Passo 3: Genera il Documento
+if selected_template and st.session_state.get('extracted_data'):
+    with st.expander("📄 Passo 3: Genera il Documento", expanded=True):
+        if st.button("🚀 Genera Verbale", type="primary", use_container_width=True):
+            try:
+                # Get the template processor
+                template_processor = get_template_processor(selected_template)
                 
-                # Simple fields in columns
-                for i, (key, value) in enumerate(simple_fields):
-                    with col1 if i % 2 == 0 else col2:
-                        edited_data[key] = st.text_input(
-                            key.replace('_', ' ').title(),
-                            value=str(value) if value else "",
-                            key=f"input_{key}"
-                        )
+                # Use edited data if available, otherwise use extracted data
+                data_to_use = st.session_state.get('edited_data', st.session_state['extracted_data'])
                 
-                # List fields full width
-                for key, value in list_fields:
-                    st.markdown(f"**{key.replace('_', ' ').title()}:**")
-                    if value:
-                        df = pd.DataFrame(value)
-                        edited_df = st.data_editor(
-                            df, 
-                            num_rows="dynamic", 
-                            key=f"editor_{key}",
-                            use_container_width=True
-                        )
-                        edited_data[key] = edited_df.to_dict('records')
-                    else:
-                        edited_data[key] = []
+                # Generate document
+                output_path = template_processor.generate_document(data_to_use)
                 
-                # Save modifications
-                if st.form_submit_button("💾 Conferma Modifiche", type="primary", use_container_width=True):
-                    st.session_state.extracted_info = edited_data
-                    st.success("✅ Modifiche salvate!")
-                    st.rerun()
+                # Read and offer download
+                with open(output_path, 'rb') as file:
+                    st.download_button(
+                        label="📥 Scarica Verbale Generato",
+                        data=file.read(),
+                        file_name=f"verbale_{selected_template.lower().replace(' ', '_')}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True
+                    )
+                
+                st.success("✅ Verbale generato con successo!")
+                
+            except Exception as e:
+                st.error(f"❌ Errore nella generazione: {str(e)}")
+
+# Advanced Multi-Document Section
+if st.session_state.get('show_advanced', False):
+    st.markdown("---")
+    st.markdown("### 🔧 Sezione Avanzata - Multi-Documento")
+    
+    # Multi-document upload
+    uploaded_files = st.file_uploader(
+        "Carica più documenti per elaborazione batch",
+        type=['pdf', 'docx', 'txt'],
+        accept_multiple_files=True,
+        key="multi_upload"
+    )
+    
+    if uploaded_files and selected_template:
+        if st.button("🔄 Elabora Tutti i Documenti", type="secondary"):
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            results = []
+            for i, file in enumerate(uploaded_files):
+                status_text.text(f"Elaborando {file.name}...")
+                progress_bar.progress((i + 1) / len(uploaded_files))
+                
+                try:
+                    # Extract text
+                    text = extract_text_from_file(file)
+                    
+                    # Process with template
+                    template_processor = get_template_processor(selected_template)
+                    extracted_data = template_processor.extract_data(text)
+                    
+                    # Generate document
+                    output_path = template_processor.generate_document(extracted_data)
+                    
+                    results.append({
+                        'file': file.name,
+                        'status': 'success',
+                        'output': output_path
+                    })
+                    
+                except Exception as e:
+                    results.append({
+                        'file': file.name,
+                        'status': 'error',
+                        'error': str(e)
+                    })
+            
+            # Show results
+            st.markdown("### 📊 Risultati Elaborazione")
+            for result in results:
+                if result['status'] == 'success':
+                    st.success(f"✅ {result['file']} - Elaborato con successo")
+                else:
+                    st.error(f"❌ {result['file']} - Errore: {result['error']}")
+
+
     
     # Step 3: Generate Document
     st.markdown("---")
