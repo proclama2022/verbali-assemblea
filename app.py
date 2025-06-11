@@ -306,71 +306,108 @@ def main():
             st.markdown("---")
             st.markdown("### ✏️ Passo 3: Modifica e Genera")
             
-            # Form per modificare le informazioni
-            with st.form("edit_info"):
-                st.markdown("**Modifica le informazioni estratte:**")
-                
-                edited_info = {}
-                for key, value in st.session_state.extracted_info.items():
-                    if isinstance(value, list):
-                        # Handle both string lists and dictionary lists
-                        if value and isinstance(value[0], dict):
-                            list_text = '\n'.join(
-                                ', '.join(f"{k_item}: {v_item}" for k_item, v_item in item.items())
-                                for item in value
-                            )
-                        else: # For inner if
-                            list_text = '\n'.join(str(item) for item in value) if value else ''
-
-                        current_text_value = st.text_area(
-                            label=key.replace('_', ' ').title(),
-                            value=list_text,
-                            height=80,
-                            key=f"text_area_{key}" 
-                        )
-                        edited_info[key] = [line.strip() for line in current_text_value.split('\n') if line.strip()]
-                    else: # For outer if isinstance(value, list)
-                        edited_info[key] = st.text_input(
-                            label=key.replace('_', ' ').title(),
-                            value=str(value) if value else "",
-                            key=f"text_input_{key}"
-                        )
-                
-                if st.form_submit_button("💾 Salva Modifiche"):
-                    st.session_state.extracted_info = edited_info
-                    st.success("✅ Modifiche salvate!")
-                    st.rerun()
+            # Crea template e form_data FUORI dal form per renderli disponibili all'anteprima
+            template = DocumentTemplateFactory.create_template(template_type)
+            # Questa chiamata crea i widget del form specifici per il template e restituisce i dati aggiornati
+            form_data = template.get_form_fields(st.session_state.extracted_info)
             
-            # Generazione documento
-            st.markdown("**Genera il documento finale:**")
+            # Anteprima dinamica che si aggiorna con i dati correnti
+            st.markdown("---")
+            st.markdown("### 👁️ Anteprima Documento (Dinamica)")
             
-            if st.button("📝 Genera Verbale", type="primary", use_container_width=True):
-                with st.spinner("Generazione documento..."):
+            # Recupera i valori correnti dai widget per l'anteprima dinamica
+            current_preview_data = {}
+            for key in form_data.keys():
+                if key in st.session_state:
+                    current_preview_data[key] = st.session_state[key]
+                else:
+                    current_preview_data[key] = form_data[key]
+            
+            # Mostra anteprima con dati aggiornati
+             with st.expander("📄 Visualizza/Modifica Anteprima Completa", expanded=True):
+                 template.show_preview(current_preview_data)
+                 
+                 # Pulsante per aggiornare l'anteprima
+                 col1, col2, col3 = st.columns([1, 1, 1])
+                 with col2:
+                     if st.button("🔄 Aggiorna Anteprima", help="Clicca per aggiornare l'anteprima con i dati modificati"):
+                         st.rerun()
+                 
+                 # Opzione per modificare direttamente il testo dell'anteprima
+                 st.markdown("**✏️ Modifica Rapida Testo:**")
+                 preview_text = st.text_area(
+                     "Modifica il testo dell'anteprima (opzionale)",
+                     value="",
+                     height=200,
+                     help="Puoi modificare direttamente il testo qui. Lascia vuoto per usare il template automatico.",
+                     key="preview_text_override"
+                 )
+                 
+                 if preview_text.strip():
+                     st.info("💡 **Nota:** Stai usando un testo personalizzato che sovrascriverà il template automatico.")
+            
+            # Show template form
+            with st.form("template_form"):
+                st.markdown("**⚙️ I dati sono configurati sopra. Clicca per generare il documento:**")
+                
+                col1, col2, col3 = st.columns([1, 1, 1])
+                with col2:
+                    generate_button = st.form_submit_button("📝 Genera Documento", type="primary", use_container_width=True)
+                
+                if generate_button:
                     try:
-                        template = DocumentTemplateFactory.create_template(template_type)
-                        doc = template.generate_document(st.session_state.extracted_info)
+                        with st.spinner("🔄 Generazione documento in corso..."):
+                            # Rigenera form_data con i valori attuali prima di generare
+                            # (Questo è necessario perché i widget potrebbero essere cambiati dall'utente)
+                            current_form_data = {}
+                            
+                            # Recupera i valori dai widget di Streamlit usando le chiavi
+                            for key in form_data.keys():
+                                if key in st.session_state:
+                                    current_form_data[key] = st.session_state[key]
+                                else:
+                                    current_form_data[key] = form_data[key]
+                            
+                            # Generate document
+                             doc = template.generate_document(current_form_data)
+                             
+                             # Se c'è testo personalizzato, sostituisci il contenuto
+                             if st.session_state.get('preview_text_override', '').strip():
+                                 # Crea un nuovo documento con il testo personalizzato
+                                 from docx import Document as DocxDocument
+                                 custom_doc = DocxDocument()
+                                 custom_doc.add_paragraph(st.session_state.preview_text_override)
+                                 doc = custom_doc
+                            
+                            # Save document
+                            output_path = f"output/{template_type}_generated.docx"
+                            os.makedirs("output", exist_ok=True)
+                            doc.save(output_path)
+                            
+                            # Store in session state for download outside form
+                            st.session_state.generated_document_path = output_path
+                            st.session_state.generated_document_name = f"{template_type}_{date.today().strftime('%Y%m%d')}.docx"
                         
-                        # Save document
-                        output_path = f"output/{template_type}_generated.docx"
-                        os.makedirs("output", exist_ok=True)
-                        doc.save(output_path)
-                        
-                        st.session_state.generated_document_path = output_path
-                        st.session_state.generated_document_name = os.path.basename(output_path)
-                        
-                        st.success(f"✅ Documento generato!")
-                        st.rerun()
+                        st.success("✅ Documento generato con successo!")
+                        st.balloons()  # Celebration effect
+                        st.info("🔄 **Processo completato!** Puoi iniziare un nuovo documento con 'Cancella Tutto' nella sidebar")
+                        st.rerun()  # Rerun to show download button
                         
                     except Exception as e:
-                        st.error(f"Errore: {str(e)}")
+                        st.error(f"❌ Errore nella generazione del documento: {e}")
+                        st.exception(e)
             
-            # Download
-            if st.session_state.get('generated_document_path'):
-                if os.path.exists(st.session_state.generated_document_path):
-                    with open(st.session_state.generated_document_path, 'rb') as file:
-                        st.download_button(
-                            label="📥 Scarica Documento",
-                            data=file.read(),
+            # Download button OUTSIDE the form
+            if 'generated_document_path' in st.session_state and os.path.exists(st.session_state.generated_document_path):
+                st.success("📄 **Documento pronto per il download!**")
+                
+                # Provide download
+                with open(st.session_state.generated_document_path, "rb") as file:
+                    col1, col2, col3 = st.columns([1, 1, 1])
+                    with col2:
+                        download_success = st.download_button(
+                            label="⬇️ Scarica Documento",
+                            data=file,
                             file_name=st.session_state.generated_document_name,
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                             type="primary",
