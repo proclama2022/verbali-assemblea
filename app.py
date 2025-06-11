@@ -389,13 +389,13 @@ if selected_template and st.session_state.get('extracted_data'):
         if st.button("🚀 Genera Verbale", type="primary", use_container_width=True):
             try:
                 # Get the template processor
-                template_processor = get_template_processor(selected_template)
+                template = DocumentTemplateFactory.create_template(selected_template)
                 
                 # Use edited data if available, otherwise use extracted data
                 data_to_use = st.session_state.get('edited_data', st.session_state['extracted_data'])
                 
                 # Generate document
-                output_path = template_processor.generate_document(data_to_use)
+                output_path = template.generate_document(data_to_use)
                 
                 # Read and offer download
                 with open(output_path, 'rb') as file:
@@ -440,11 +440,13 @@ if st.session_state.get('show_advanced', False):
                     text = extract_text_from_file(file)
                     
                     # Process with template
-                    template_processor = get_template_processor(selected_template)
-                    extracted_data = template_processor.extract_data(text)
+                    template = DocumentTemplateFactory.create_template(selected_template)
+                    # Note: Templates don't have extract_data method, using processor instead
+                    processor = DocumentProcessorFactory.create_processor(selected_template, client)
+                    extracted_data = processor.extract_information(text)
                     
                     # Generate document
-                    output_path = template_processor.generate_document(extracted_data)
+                    output_path = template.generate_document(extracted_data)
                     
                     results.append({
                         'file': file.name,
