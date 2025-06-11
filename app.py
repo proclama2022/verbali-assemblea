@@ -347,11 +347,13 @@ def main():
             if st.button("📝 Genera Verbale", type="primary", use_container_width=True):
                 with st.spinner("Generazione documento..."):
                     try:
-                        generator = DocumentGenerator('templates')
-                        output_path = generator.generate_document(
-                            template_type,
-                            st.session_state.extracted_info
-                        )
+                        template = DocumentTemplateFactory.create_template(template_type)
+                        doc = template.generate_document(st.session_state.extracted_info)
+                        
+                        # Save document
+                        output_path = f"output/{template_type}_generated.docx"
+                        os.makedirs("output", exist_ok=True)
+                        doc.save(output_path)
                         
                         st.session_state.generated_document_path = output_path
                         st.session_state.generated_document_name = os.path.basename(output_path)
