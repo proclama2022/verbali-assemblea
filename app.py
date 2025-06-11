@@ -380,37 +380,7 @@ def main():
         st.info("👈 Seleziona prima un template dalla sidebar per iniziare")
         return
 
-# Get selected template from session state
-selected_template = st.session_state.get('selected_template_type')
 
-# Passo 3: Genera il Documento
-if selected_template and st.session_state.get('extracted_data'):
-    with st.expander("📄 Passo 3: Genera il Documento", expanded=True):
-        if st.button("🚀 Genera Verbale", type="primary", use_container_width=True):
-            try:
-                # Get the template processor
-                template = DocumentTemplateFactory.create_template(selected_template)
-                
-                # Use edited data if available, otherwise use extracted data
-                data_to_use = st.session_state.get('edited_data', st.session_state['extracted_data'])
-                
-                # Generate document
-                output_path = template.generate_document(data_to_use)
-                
-                # Read and offer download
-                with open(output_path, 'rb') as file:
-                    st.download_button(
-                        label="📥 Scarica Verbale Generato",
-                        data=file.read(),
-                        file_name=f"verbale_{selected_template.lower().replace(' ', '_')}.docx",
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        use_container_width=True
-                    )
-                
-                st.success("✅ Verbale generato con successo!")
-                
-            except Exception as e:
-                st.error(f"❌ Errore nella generazione: {str(e)}")
 
 # Advanced Multi-Document Section
 if st.session_state.get('show_advanced', False):
