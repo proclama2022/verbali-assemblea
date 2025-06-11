@@ -293,8 +293,7 @@ def main():
                     try:
                         processor = DocumentProcessorFactory.create_processor(document_type, client)
                         extracted_info = processor.extract_information(
-                            st.session_state.document_text,
-                            template_type
+                            st.session_state.document_text
                         )
                         st.session_state.extracted_info = extracted_info
                         st.success("✅ Informazioni estratte!")
