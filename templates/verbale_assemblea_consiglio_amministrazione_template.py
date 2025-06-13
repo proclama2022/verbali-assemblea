@@ -12,6 +12,9 @@ if src_path not in sys.path:
     sys.path.append(src_path)
 
 from document_templates import DocumentTemplate
+from document_templates import DocumentTemplateFactory
+from base_verbale_template import BaseVerbaleTemplate
+from common_data_handler import CommonDataHandler
 import streamlit as st
 from datetime import datetime, date
 from docx import Document
@@ -19,7 +22,7 @@ from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.style import WD_STYLE_TYPE
 
-class VerbaleConsiglioAmministrazioneTemplate(DocumentTemplate):
+class VerbaleConsiglioAmministrazioneTemplate(BaseVerbaleTemplate):
     """Template per verbale di nomina Consiglio di Amministrazione"""
     
     def get_template_name(self) -> str:
@@ -27,7 +30,7 @@ class VerbaleConsiglioAmministrazioneTemplate(DocumentTemplate):
     
     def get_required_fields(self) -> list:
         return ['denominazione', 'sede_legale', 'capitale_sociale', 'codice_fiscale', 
-                'data_assemblea', 'ora_inizio', 'presidente', 'segretario', 'consiglieri']
+                'data_assemblea', 'ora_inizio', 'presidente', 'segretario', 'consiglieri', 'soci']
     
     def get_form_fields(self, extracted_data: dict) -> dict:
         """Definisce i campi del form per questo template"""
@@ -80,7 +83,7 @@ class VerbaleConsiglioAmministrazioneTemplate(DocumentTemplate):
         st.subheader("📝 Dettagli Nomina")
         motivo_nomina = st.text_area("Motivo della nomina", 
                                    value=extracted_data.get('motivo_nomina', 'Dimissioni dell\'organo in carica'),
-                                   height=60)
+                                   height=80)
         
         # Numero consiglieri
         num_consiglieri = st.number_input("Numero Consiglieri", min_value=1, max_value=10, value=3)
@@ -141,7 +144,14 @@ class VerbaleConsiglioAmministrazioneTemplate(DocumentTemplate):
         durata_incarico = st.text_input("Durata Incarico", 
                                       value="A tempo indeterminato fino a revoca o dimissioni")
         
-        return {
+        # ================= Soci e partecipazioni tramite CommonDataHandler =================
+        participants_data = CommonDataHandler.extract_and_populate_participants_data(
+            extracted_data,
+            unique_key_suffix="cda"
+        )
+
+        # Unisci participants_data agli altri campi
+        all_data = {
             'denominazione': denominazione,
             'sede_legale': sede_legale,
             'capitale_sociale': capitale_sociale,
@@ -160,6 +170,11 @@ class VerbaleConsiglioAmministrazioneTemplate(DocumentTemplate):
             'rimborso_spese': rimborso_spese,
             'durata_incarico': durata_incarico
         }
+
+        # Aggiungi soci e amministratori dal CommonDataHandler
+        all_data.update(participants_data)
+
+        return all_data
     
     def show_preview(self, form_data: dict):
         """Mostra l'anteprima del verbale"""
@@ -193,7 +208,64 @@ Ordine del giorno
             if data.get('include_compensi', True):
                 header += "\n• attribuzione di compensi al Consiglio di Amministrazione della società"
             
-            # Sezione presidente
+            # --- Costruzione elenco soci prima della sezione presidente ---
+            soci_list = data.get('soci', []) or []
+            soci_listing_lines = []
+            for socio in soci_list:
+                if isinstance(socio, dict) and socio.get('nome'):
+                    quota_euro = socio.get('quota_euro', '')
+                    quota_perc = socio.get('quota_percentuale', '')
+                    quota_text = ""
+                    if quota_euro:
+                        quota_text += f" euro {quota_euro}"
+                    if quota_perc:
+                        quota_text += f" pari al {quota_perc}%"
+                    soci_listing_lines.append(f"- {socio.get('nome')} ({socio.get('tipo_soggetto', 'PF')}){quota_text}")
+
+            soci_listing = "\n".join(soci_listing_lines) if soci_listing_lines else "- Nessun socio presente"
+            
+            # ---- Calcolo totali quota euro e percentuale ----
+            total_quota_euro_val = 0.0
+            total_quota_perc_val = 0.0
+
+            # Capitale sociale float (serve per calcolare percentuali se non presenti)
+            capitale_raw = data.get('capitale_sociale', '').replace('.', '').replace(',', '.')
+            try:
+                capitale_sociale_float = float(capitale_raw) if capitale_raw else 0.0
+            except ValueError:
+                capitale_sociale_float = 0.0
+
+            for socio in soci_list:
+                if isinstance(socio, dict):
+                    # totale euro
+                    quota_euro_raw = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
+                    try:
+                        total_quota_euro_val += float(quota_euro_raw) if quota_euro_raw else 0.0
+                    except ValueError:
+                        pass
+
+                    # totale percentuale
+                    quota_perc_raw = socio.get('quota_percentuale', '')
+                    if quota_perc_raw:
+                        try:
+                            perc_clean = str(quota_perc_raw).replace('%', '').replace(',', '.').strip()
+                            total_quota_perc_val += float(perc_clean)
+                        except ValueError:
+                            pass
+                    else:
+                        # se manca percentuale calcola da euro
+                        try:
+                            quota_euro_val = float(quota_euro_raw) if quota_euro_raw else 0.0
+                            if capitale_sociale_float > 0 and quota_euro_val > 0:
+                                total_quota_perc_val += (quota_euro_val / capitale_sociale_float * 100)
+                        except ValueError:
+                            pass
+
+            # Formatta totali
+            total_quota_euro = CommonDataHandler.format_currency(total_quota_euro_val)
+            total_quota_perc = CommonDataHandler.format_percentage(total_quota_perc_val)
+            
+            # Sezione presidente con soci già inseriti
             presidente_section = f"""
 
 Assume la presidenza ai sensi dell'art. […] dello statuto sociale il Sig. {data.get('presidente', '[PRESIDENTE]')} Amministratore Unico [oppure Presidente del Consiglio di Amministrazione o altro (come da statuto)], il quale dichiara e constata:
@@ -203,8 +275,8 @@ Assume la presidenza ai sensi dell'art. […] dello statuto sociale il Sig. {dat
 2 - che sono presenti/partecipano all'assemblea:
 l'Amministratore Unico nella persona del suddetto Presidente Sig. {data.get('presidente', '[PRESIDENTE]')}
 
-nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro […] pari al […]% del Capitale Sociale:
-[Elenco soci partecipanti]
+nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {total_quota_euro} pari al {total_quota_perc} del Capitale Sociale:
+{soci_listing}
 
 2 - che gli intervenuti sono legittimati alla presente assemblea;
 3 - che tutti gli intervenuti si dichiarano edotti sugli argomenti posti all'ordine del giorno.
@@ -311,6 +383,272 @@ Il Presidente                    Il Segretario
             return f"Errore nella generazione dell'anteprima: {str(e)}"
     
     def generate_document(self, data: dict) -> Document:
-        """Genera il documento Word del verbale"""
-        doc = Document()
+        """Genera il documento Word del verbale con formattazione simile agli altri template."""
+        import os
+
+        # Se esiste un template .docx di base, prova a caricarlo per mantenere stili
+        template_path = os.path.join(os.path.dirname(__file__), 'template.docx')
+
+        try:
+            if os.path.exists(template_path):
+                doc = Document(template_path)
+                # Svuota il contenuto preservando gli stili
+                for paragraph in doc.paragraphs[:]:
+                    paragraph._element.getparent().remove(paragraph._element)
+                # Configura stili base definiti nella superclass
+                self._setup_document_styles(doc)
+            else:
+                doc = Document()
+                self._setup_document_styles(doc)
+        except Exception:
+            doc = Document()
+            self._setup_document_styles(doc)
+
+        # Garantisce che existano campi lista soci
+        if 'soci' not in data:
+            data['soci'] = []
+
+        # Header, titolo, apertura, partecipanti, discussione, chiusura, firme
+        self._add_company_header(doc, data)
+        self._add_verbale_title(doc, data)
+        self._add_opening_section(doc, data)
+        self._add_participants_section(doc, data)
+        self._add_nomination_discussion(doc, data)
+        self._add_closing_section(doc, data)
+        self._add_signatures(doc, data)
+
         return doc
+
+    # --------------------- Sezioni helper per il documento ---------------------
+
+    def _add_opening_section(self, doc, data):
+        """Sezione iniziale con data, ora e sede e ordine del giorno"""
+        doc.add_paragraph()
+
+        try:
+            p = doc.add_paragraph(style='BodyText')
+        except KeyError:
+            p = doc.add_paragraph()
+
+        # Data e ora formattate
+        data_val = data.get('data_assemblea', '[DATA]')
+        data_str = data_val.strftime('%d/%m/%Y') if hasattr(data_val, 'strftime') else str(data_val)
+
+        ora_val = data.get('ora_inizio', '[ORA]')
+        ora_str = ora_val.strftime('%H:%M') if hasattr(ora_val, 'strftime') else str(ora_val)
+
+        sede = data.get('sede_legale', '[SEDE]')
+
+        opening_text = (f"Oggi {data_str} alle ore {ora_str} presso la sede sociale {sede}, "
+                        "si è tenuta l'assemblea generale dei soci, per discutere e deliberare sul seguente:")
+
+        run = p.add_run(opening_text)
+        run.font.name = 'Times New Roman'
+        run.font.size = Pt(12)
+
+        # Ordine del giorno
+        doc.add_paragraph()
+        try:
+            p = doc.add_paragraph(style='BodyText')
+        except KeyError:
+            p = doc.add_paragraph()
+        run = p.add_run("Ordine del giorno")
+        run.bold = True
+        run.font.name = 'Times New Roman'
+        run.font.size = Pt(12)
+
+        # punti
+        try:
+            p = doc.add_paragraph(style='BodyText')
+        except KeyError:
+            p = doc.add_paragraph()
+        run = p.add_run("1. nomina del Consiglio di Amministrazione della società")
+        run.font.name = 'Times New Roman'
+        run.font.size = Pt(12)
+
+        if data.get('include_compensi', True):
+            try:
+                p = doc.add_paragraph(style='BodyText')
+            except KeyError:
+                p = doc.add_paragraph()
+            run = p.add_run("2. attribuzione di compensi al Consiglio di Amministrazione della società")
+            run.font.name = 'Times New Roman'
+            run.font.size = Pt(12)
+
+    def _add_participants_section(self, doc, data):
+        """Sezione presidente e partecipanti, inclusi soci"""
+        doc.add_paragraph()
+        try:
+            p = doc.add_paragraph(style='BodyText')
+        except KeyError:
+            p = doc.add_paragraph()
+
+        presidente = data.get('presidente', '[PRESIDENTE]')
+        run = p.add_run(
+            f"Assume la presidenza ai sensi dell'art. […] dello statuto sociale il Sig. {presidente} Amministratore Unico [oppure Presidente del Consiglio di Amministrazione o altro], il quale dichiara e constata:")
+        run.font.name = 'Times New Roman'
+        run.font.size = Pt(12)
+
+        # Sezione soci dettagliata
+        soci = data.get('soci', [])
+        if soci:
+            self._add_soci_section(doc, data)
+
+    def _add_soci_section(self, doc, data):
+        """Lista soci con quote e totali"""
+        soci = data.get('soci', [])
+        if not soci:
+            return
+
+        # Calcola totali
+        total_euro = 0.0
+        total_perc = 0.0
+        capitale_raw = str(data.get('capitale_sociale', '0')).replace('.', '').replace(',', '.')
+        try:
+            capitale_float = float(capitale_raw)
+        except ValueError:
+            capitale_float = 0.0
+
+        for socio in soci:
+            if isinstance(socio, dict):
+                # euro
+                euro_raw = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
+                try:
+                    total_euro += float(euro_raw or 0)
+                except ValueError:
+                    pass
+
+                # percentuale
+                perc_raw = socio.get('quota_percentuale', '')
+                if perc_raw:
+                    try:
+                        total_perc += float(str(perc_raw).replace('%', '').replace(',', '.'))
+                    except ValueError:
+                        pass
+                else:
+                    try:
+                        euro_val = float(euro_raw or 0)
+                        if capitale_float > 0 and euro_val > 0:
+                            total_perc += euro_val / capitale_float * 100
+                    except ValueError:
+                        pass
+
+        formatted_euro = CommonDataHandler.format_currency(total_euro)
+        formatted_perc = CommonDataHandler.format_percentage(total_perc)
+
+        # Paragrafo totali
+        try:
+            p = doc.add_paragraph(style='BodyText')
+        except KeyError:
+            p = doc.add_paragraph()
+        run = p.add_run(
+            f"nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_euro} pari al {formatted_perc} del Capitale Sociale:")
+        run.font.name = 'Times New Roman'
+        run.font.size = Pt(12)
+
+        # Lista soci
+        for socio in soci:
+            if isinstance(socio, dict) and socio.get('nome'):
+                quota_euro = CommonDataHandler.format_currency(socio.get('quota_euro', '0'))
+                quota_perc = socio.get('quota_percentuale', '')
+                if not quota_perc:
+                    # calcola
+                    try:
+                        euro_val = float(str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.'))
+                        quota_perc = CommonDataHandler.format_percentage(euro_val / capitale_float * 100) if capitale_float else '[%]'
+                    except ValueError:
+                        quota_perc = '[%]'
+                else:
+                    quota_perc = CommonDataHandler.clean_percentage(quota_perc)
+
+                tipo_sogg = socio.get('tipo_soggetto', 'Persona Fisica')
+                tipo_part = socio.get('tipo_partecipazione', 'Diretto')
+                delegato = socio.get('delegato', '').strip()
+                rappresentante = socio.get('rappresentante_legale', '').strip()
+
+                # Costruisci descrizione socio con deleghe/rappr. legale
+                if tipo_part == 'Delegato' and delegato:
+                    # Caso delegato
+                    if tipo_sogg == 'Società':
+                        descr_line = (f"il Sig {delegato} delegato della società {socio.get('nome')} socio "
+                                      f"recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale")
+                    else:
+                        descr_line = (f"il Sig {delegato} delegato del socio Sig {socio.get('nome')} "
+                                      f"recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale")
+                else:
+                    # Partecipazione diretta
+                    if tipo_sogg == 'Società':
+                        if rappresentante:
+                            descr_line = (f"la società {socio.get('nome')}, rappresentata dal Sig {rappresentante}, socia "
+                                          f"recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale")
+                        else:
+                            descr_line = (f"la società {socio.get('nome')} socia recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale")
+                    else:
+                        descr_line = (f"il Sig {socio.get('nome')} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale")
+
+                try:
+                    p = doc.add_paragraph(style='BodyText')
+                except KeyError:
+                    p = doc.add_paragraph()
+                run = p.add_run(descr_line)
+                run.font.name = 'Times New Roman'
+                run.font.size = Pt(12)
+
+    def _add_nomination_discussion(self, doc, data):
+        """Discussione sulla nomina del CdA e deliberazione"""
+        doc.add_paragraph()
+
+        try:
+            p = doc.add_paragraph(style='BodyText')
+        except KeyError:
+            p = doc.add_paragraph()
+
+        motivo = data.get('motivo_nomina', 'dimissioni dell\'organo in carica').lower()
+        membri = len(data.get('consiglieri', []))
+        run = p.add_run(
+            f"Il Presidente informa l'assemblea che si rende necessaria la nomina di un nuovo organo amministrativo [{motivo}]. "
+            f"Propone di affidare l'amministrazione della società ad un Consiglio di Amministrazione di {membri} membri.")
+        run.font.name = 'Times New Roman'
+        run.font.size = Pt(12)
+
+        # Elenco consiglieri
+        consiglieri = data.get('consiglieri', [])
+        for cons in consiglieri:
+            if cons.get('nome'):
+                try:
+                    p = doc.add_paragraph(style='BodyText')
+                except KeyError:
+                    p = doc.add_paragraph()
+                data_nascita = cons.get('data_nascita')
+                data_str = data_nascita.strftime('%d/%m/%Y') if hasattr(data_nascita, 'strftime') else '[Data nascita]'
+                run = p.add_run(f"- {cons.get('nome')} nato a {cons.get('luogo_nascita', '')} il {data_str}, C.F. {cons.get('codice_fiscale', '')}, residente in {cons.get('residenza', '')}")
+                run.font.name = 'Times New Roman'
+                run.font.size = Pt(12)
+
+        # Compensi
+        if data.get('include_compensi', True):
+            try:
+                p = doc.add_paragraph(style='BodyText')
+            except KeyError:
+                p = doc.add_paragraph()
+            run = p.add_run("L'assemblea delibera inoltre di attribuire all'organo amministrativo il compenso annuo previsto.")
+            run.font.name = 'Times New Roman'
+            run.font.size = Pt(12)
+
+    def _add_closing_section(self, doc, data):
+        """Sezione di chiusura con ora scioglimento"""
+        doc.add_paragraph()
+        try:
+            p = doc.add_paragraph(style='BodyText')
+        except KeyError:
+            p = doc.add_paragraph()
+
+        ora_val = data.get('ora_chiusura', '[ORA]')
+        ora_str = ora_val.strftime('%H:%M') if hasattr(ora_val, 'strftime') else str(ora_val)
+
+        run = p.add_run(f"Il Presidente constata che l'ordine del giorno è esaurito e che nessuno chiede la parola. L'assemblea viene sciolta alle ore {ora_str}.")
+        run.font.name = 'Times New Roman'
+        run.font.size = Pt(12)
+
+# Registrazione del template nel factory per renderlo selezionabile nell'app
+DocumentTemplateFactory.register_template('verbale_assemblea_consiglio_amministrazione', VerbaleConsiglioAmministrazioneTemplate)

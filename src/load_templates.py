@@ -1,6 +1,5 @@
 """
-Modulo per caricare tutti i template disponibili nel sistema.
-Questo file deve essere importato nell'app principale per registrare i template.
+Modulo per caricare automaticamente tutti i template disponibili nel sistema.
 """
 
 import os
@@ -9,7 +8,7 @@ import importlib
 import traceback
 
 def load_all_templates():
-    """Carica tutti i template dalla cartella templates/"""
+    """Carica automaticamente tutti i template dalla cartella templates/"""
     templates_dir = "templates"
     
     if not os.path.exists(templates_dir):
@@ -20,7 +19,7 @@ def load_all_templates():
     if templates_dir not in sys.path:
         sys.path.append(templates_dir)
     
-    # Trova tutti i file Python nella cartella templates
+    # Trova automaticamente tutti i file Python nella cartella templates
     template_files = [f for f in os.listdir(templates_dir) 
                      if f.endswith('.py') and f != '__init__.py']
     
@@ -35,7 +34,7 @@ def load_all_templates():
     for template_file in template_files:
         module_name = template_file[:-3]  # Rimuovi .py
         try:
-            print(f"📥 Tentativo di caricare: {module_name}")
+            print(f"📥 Caricamento: {module_name}")
             
             # Rimuovi il modulo dalla cache se già presente
             if module_name in sys.modules:
@@ -65,4 +64,4 @@ if __name__ == "__main__":
         available = DocumentTemplateFactory.get_available_templates()
         print(f"🎯 Template disponibili nel factory: {available}")
     except Exception as e:
-        print(f"❌ Errore nel verificare template factory: {e}") 
+        print(f"❌ Errore nel verificare template factory: {e}")

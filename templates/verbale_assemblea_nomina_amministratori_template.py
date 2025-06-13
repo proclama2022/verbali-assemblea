@@ -14,6 +14,7 @@ if src_path not in sys.path:
 
 from document_templates import DocumentTemplate, DocumentTemplateFactory
 from common_data_handler import CommonDataHandler
+from base_verbale_template import BaseVerbaleTemplate
 from docx import Document
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -23,7 +24,7 @@ import streamlit as st
 import pandas as pd
 import re
 
-class VerbaleNominaAmministratoriTemplate(DocumentTemplate):
+class VerbaleNominaAmministratoriTemplate(BaseVerbaleTemplate):
     """Template per Verbale di Assemblea dei Soci - Nomina Amministratori"""
     
     def get_template_name(self) -> str:
@@ -174,13 +175,34 @@ class VerbaleNominaAmministratoriTemplate(DocumentTemplate):
                 st.info("💡 L'anteprima si aggiorna automaticamente con i dati inseriti sopra")
         
         if show_preview:
-            with st.expander("📄 Anteprima del Verbale", expanded=True):
-                try:
-                    preview_text = self._generate_preview_text(form_data)
-                    st.text(preview_text)
-                except Exception as e:
-                    st.error(f"Errore nella generazione dell'anteprima: {e}")
-                    st.exception(e)
+            try:
+                # Debug dettagliato: mostra i dati estratti
+                with st.expander("Debug: Dati estratti dal form"):
+                    st.json(form_data)
+                    
+                    # Debug specifico per i soci
+                    if 'soci' in form_data and form_data['soci']:
+                        st.subheader("Debug Soci:")
+                        for i, socio in enumerate(form_data['soci']):
+                            st.write(f"Socio {i+1}:")
+                            st.write(f"  - Nome: {socio.get('nome', 'N/A')}")
+                            st.write(f"  - Tipo Soggetto: {socio.get('tipo_soggetto', 'N/A')}")
+                            st.write(f"  - Tipo Partecipazione: {socio.get('tipo_partecipazione', 'N/A')}")
+                            st.write(f"  - Delegato: {socio.get('delegato', 'N/A')}")
+                            st.write(f"  - Rappresentante Legale: {socio.get('rappresentante_legale', 'N/A')}")
+                            st.write(f"  - Presente: {socio.get('presente', 'N/A')}")
+                            st.write("---")
+                
+                preview_text = self._generate_preview_text(form_data)
+                st.text_area(
+                    "Contenuto del verbale:",
+                    value=preview_text,
+                    height=600,
+                    key="preview_text_nomina_admin"
+                )
+            except Exception as e:
+                st.error(f"Errore nell'anteprima: {e}")
+                st.exception(e)
     
     def _generate_preview_text(self, data: dict) -> str:
         """Genera il testo di anteprima del verbale"""
@@ -194,7 +216,7 @@ Codice fiscale: {data.get('codice_fiscale', '[CF]')}
 Verbale di assemblea dei soci
 del {data.get('data_assemblea', '[Data]').strftime('%d/%m/%Y') if hasattr(data.get('data_assemblea'), 'strftime') else '[Data]'}
 
-Oggi {data.get('data_assemblea', '[Data]').strftime('%d/%m/%Y') if hasattr(data.get('data_assemblea'), 'strftime') else '[Data]'} alle ore {data.get('ora_assemblea', '[Ora]').strftime('%H:%M') if hasattr(data.get('ora_assemblea'), 'strftime') else '[Ora]'} presso la sede sociale {data.get('sede_legale', '[Sede]')}, si è tenuta l'assemblea generale dei soci, per discutere e deliberare sul seguente:
+Oggi {data.get('data_assemblea', '[Data]').strftime('%d/%m/%Y') if hasattr(data.get('data_assemblea'), 'strftime') else '[Data]'} alle ore {data.get('ora_inizio', '[Ora]').strftime('%H:%M') if hasattr(data.get('ora_inizio'), 'strftime') else '[Ora]'} presso la sede sociale {data.get('sede_legale', '[Sede]')}, si è tenuta l'assemblea generale dei soci, per discutere e deliberare sul seguente:
 
 Ordine del giorno
 1. nomina degli amministratori della società"""
@@ -226,21 +248,93 @@ l'{data.get('ruolo_presidente', 'Amministratore Unico')} nella persona del sudde
                 presidente_section += "\n[eventualmente\nper il Collegio Sindacale\nil Dott. […]\nil Dott. […]\nil Dott. […]\n[oppure\nil Sindaco Unico nella persona del Sig. […]]]"
             
             # Soci presenti
-            soci_section = "\nnonché i seguenti soci o loro rappresentanti, [eventualmente così come iscritti a libro soci e] recanti complessivamente una quota pari a nominali euro […] pari al […]% del Capitale Sociale:"
             soci = data.get('soci', [])
+            total_quota_euro = 0.0
+            # total_quota_percentuale = 0.0 # Non più calcolato sommando le singole quote percentuali
+
+            for socio in soci:
+                if isinstance(socio, dict):
+                    try:
+                        # Rimuovi punti e sostituisci virgola con punto per la conversione a float
+                        quota_euro_str = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
+                        total_quota_euro += float(quota_euro_str)
+                    except ValueError:
+                        pass # Ignora valori non numerici
+                    # La percentuale totale viene ora presa direttamente da data.get('percentuale_capitale_str')
+                    # try:
+                    #     quota_percentuale_str = str(socio.get('quota_percentuale', '0')).replace('.', '').replace(',', '.')
+                    #     total_quota_percentuale += float(quota_percentuale_str)
+                    # except ValueError:
+                    #     pass # Ignora valori non numerici
+            
+            # Formatta i totali per la visualizzazione
+            formatted_total_quota_euro = f"{total_quota_euro:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') # Formato italiano
+            
+            # Usa la percentuale totale fornita direttamente, con un fallback
+            percentuale_capitale_presente_str = data.get('percentuale_capitale_str', '0,00')
+            # Assicurati che sia una stringa prima di provare a formattare, e gestisci il caso in cui sia già formattata o un numero
+            if isinstance(percentuale_capitale_presente_str, (int, float)):
+                formatted_total_quota_percentuale = f"{percentuale_capitale_presente_str:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            elif isinstance(percentuale_capitale_presente_str, str):
+                # Prova a convertire in float per una formattazione consistente, gestendo errori
+                try:
+                    percentuale_float = float(percentuale_capitale_presente_str.replace('.', '').replace(',', '.'))
+                    formatted_total_quota_percentuale = f"{percentuale_float:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                except ValueError:
+                    formatted_total_quota_percentuale = percentuale_capitale_presente_str # Usa la stringa così com'è se non convertibile
+            else:
+                 formatted_total_quota_percentuale = '0,00' # Fallback
+            
+            if not formatted_total_quota_percentuale.strip() or formatted_total_quota_percentuale.strip() == '%':
+                formatted_total_quota_percentuale = '[Percentuale]'
+
+            soci_section = f"\nnonché i seguenti soci o loro rappresentanti, [eventualmente così come iscritti a libro soci e] recanti complessivamente una quota pari a nominali euro {formatted_total_quota_euro} pari al {formatted_total_quota_percentuale}% del Capitale Sociale:"
             
             for socio in soci:
                 if isinstance(socio, dict):
                     nome = socio.get('nome', '[Nome Socio]')
-                    quota = socio.get('quota', '[Quota]')
-                    percentuale = socio.get('percentuale', '[%]')
+                    
+                    # Gestione robusta delle quote - converte None e stringhe vuote in placeholder appropriati
+                    quota_euro_raw = socio.get('quota_euro', '')
+                    quota_percentuale_raw = socio.get('quota_percentuale', '')
+                    
+                    # Se il valore è None, stringa vuota, o contiene solo spazi, usa un placeholder
+                    if not quota_euro_raw or str(quota_euro_raw).strip() == '':
+                        quota = '[Quota]'
+                    else:
+                        quota = str(quota_euro_raw).strip()
+                        
+                    if not quota_percentuale_raw or str(quota_percentuale_raw).strip() == '':
+                        percentuale = '[%]'
+                    else:
+                        percentuale = str(quota_percentuale_raw).strip()
+                    
                     tipo_partecipazione = socio.get('tipo_partecipazione', 'Diretta')
+                    tipo_soggetto = socio.get('tipo_soggetto', 'Persona Fisica')
+                    rappresentante_legale = socio.get('rappresentante_legale', '')
+                    
+                    # Determina il prefisso basato sul tipo di soggetto
+                    if tipo_soggetto == 'Società':
+                        prefisso = "la società"
+                        if rappresentante_legale:
+                            rappresentante_text = f" nella persona del suo rappresentante legale {rappresentante_legale}"
+                        else:
+                            rappresentante_text = " nella persona del suo rappresentante legale [Nome Rappresentante]"
+                    else:
+                        prefisso = "il Sig"
+                        rappresentante_text = ""
                     
                     if tipo_partecipazione == 'Delegato':
                         delegato = socio.get('delegato', '[Delegato]')
-                        soci_section += f"\nil Sig {delegato} delegato del socio Sig {nome} recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale"
+                        if tipo_soggetto == 'Società':
+                            soci_section += f"\nil Sig {delegato} delegato di {prefisso} {nome}{rappresentante_text} recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale"
+                        else:
+                            soci_section += f"\nil Sig {delegato} delegato del socio {prefisso} {nome} recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale"
                     else:
-                        soci_section += f"\nil Sig {nome} socio [oppure delegato del socio Sig […]] recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale"
+                        if tipo_soggetto == 'Società':
+                            soci_section += f"\n{prefisso} {nome}{rappresentante_text} socio recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale"
+                        else:
+                            soci_section += f"\n{prefisso} {nome} socio recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale"
                 else:
                     soci_section += f"\nil Sig {socio} socio"
             
@@ -369,7 +463,26 @@ Il Presidente                    Il Segretario
     
     def generate_document(self, data: dict) -> Document:
         """Genera il documento Word del verbale"""
-        doc = Document()
+        import os
+        
+        # Utilizza il template .docx esistente per mantenere la formattazione
+        template_path = os.path.join(os.path.dirname(__file__), 'template.docx')
+        
+        try:
+            if os.path.exists(template_path):
+                doc = Document(template_path)
+                # Rimuovi il contenuto esistente del template mantenendo gli stili
+                for paragraph in doc.paragraphs[:]:
+                    p = paragraph._element
+                    p.getparent().remove(p)
+            else:
+                doc = Document()
+                # Setup stili solo se non usiamo template
+                self._setup_document_styles(doc)
+        except Exception as e:
+            # Fallback a documento vuoto se il template non può essere caricato
+            doc = Document()
+            self._setup_document_styles(doc)
         
         # Setup stili del documento
         self._setup_document_styles(doc)
@@ -402,9 +515,10 @@ Il Presidente                    Il Segretario
     
     def _setup_document_styles(self, doc):
         """Imposta gli stili del documento"""
+        super()._setup_document_styles(doc) # Call base class method first
         styles = doc.styles
         
-        # Stile per il titolo principale
+        # Stile per il titolo principale (aggiuntivo o sovrascritto)
         if 'Titolo Principale' not in [s.name for s in styles]:
             title_style = styles.add_style('Titolo Principale', WD_STYLE_TYPE.PARAGRAPH)
             title_style.font.name = 'Times New Roman'
@@ -535,15 +649,29 @@ Il Presidente                    Il Segretario
         for socio in soci:
             if isinstance(socio, dict):
                 nome = socio.get('nome', '[Nome Socio]')
-                quota = socio.get('quota', '[Quota]')
-                percentuale = socio.get('percentuale', '[%]')
+                
+                # Gestione robusta delle quote - converte None e stringhe vuote in placeholder appropriati
+                quota_euro_raw = socio.get('quota_euro', '')
+                quota_percentuale_raw = socio.get('quota_percentuale', '')
+                
+                # Se il valore è None, stringa vuota, o contiene solo spazi, usa un placeholder
+                if not quota_euro_raw or str(quota_euro_raw).strip() == '':
+                    quota_euro = '[Quota]'
+                else:
+                    quota_euro = str(quota_euro_raw).strip()
+                    
+                if not quota_percentuale_raw or str(quota_percentuale_raw).strip() == '':
+                    quota_percentuale = '[%]'
+                else:
+                    quota_percentuale = str(quota_percentuale_raw).strip()
+                
                 tipo_partecipazione = socio.get('tipo_partecipazione', 'Diretta')
                 
                 if tipo_partecipazione == 'Delegato':
                     delegato = socio.get('delegato', '[Delegato]')
-                    p = doc.add_paragraph(f"il Sig. {delegato} delegato del socio Sig {nome} recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale")
+                    p = doc.add_paragraph(f"il Sig. {delegato} delegato del socio Sig {nome} recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale")
                 else:
-                    p = doc.add_paragraph(f"il Sig. {nome} socio recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale")
+                    p = doc.add_paragraph(f"il Sig. {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale")
         
         # Verifica legittimazione
         p = doc.add_paragraph("2 - che gli intervenuti sono legittimati alla presente assemblea;")
@@ -672,28 +800,14 @@ Il Presidente                    Il Segretario
     
     def _add_signatures(self, doc, data):
         """Aggiunge le firme"""
-        doc.add_paragraph()
-        doc.add_paragraph()
+        # Use the standardized signature logic from BaseVerbaleTemplate
+        super()._add_signatures(doc, data)
         
-        # Tabella per le firme
-        table = doc.add_table(rows=2, cols=2)
-        table.style = 'Table Grid'
-        table.autofit = False
-        
-        # Header
-        hdr_cells = table.rows[0].cells
-        hdr_cells[0].text = 'Il Presidente'
-        hdr_cells[1].text = 'Il Segretario'
-        
-        # Firme
-        row_cells = table.rows[1].cells
-        row_cells[0].text = data.get('presidente', '[PRESIDENTE]')
-        row_cells[1].text = data.get('segretario', '[SEGRETARIO]')
-        
-        # Centra la tabella
-        for row in table.rows:
-            for cell in row.cells:
-                cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        # Nota: La centratura della tabella, se necessaria, dovrebbe essere gestita
+        # all'interno del metodo _add_signatures della classe base o qui se si 
+        # sovrascrive e si ricrea una tabella specifica.
+        # Dato che stiamo usando il metodo della classe base, la logica di centratura 
+        # specifica per una tabella non è più direttamente applicabile qui.
 
 # Registra il template
 DocumentTemplateFactory.register_template('verbale_assemblea_nomina_amministratori', VerbaleNominaAmministratoriTemplate)

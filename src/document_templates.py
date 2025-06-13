@@ -50,4 +50,4 @@ class DocumentTemplateFactory:
     @classmethod
     def get_available_templates(cls) -> List[str]:
         """Get list of available template types"""
-        return list(cls._templates.keys()) 
+        return list(cls._templates.keys())

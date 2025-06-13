@@ -14,6 +14,7 @@ if src_path not in sys.path:
 
 from document_templates import DocumentTemplate, DocumentTemplateFactory
 from common_data_handler import CommonDataHandler
+from base_verbale_template import BaseVerbaleTemplate
 from docx import Document
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -23,7 +24,7 @@ import streamlit as st
 import pandas as pd
 import re
 
-class VerbaleCorrezioniTemplate(DocumentTemplate):
+class VerbaleCorrezioniTemplate(BaseVerbaleTemplate):
     """Template per Verbale di Assemblea dei Soci - Correzioni/Precisazioni"""
     
     def get_template_name(self) -> str:
@@ -86,11 +87,14 @@ class VerbaleCorrezioniTemplate(DocumentTemplate):
         with col1:
             st.write("Specifica le correzioni da apportare al verbale precedente:")
         with col2:
-            if st.button("➕ Aggiungi correzione"):
-                st.session_state.num_correzioni += 1
-            if st.session_state.num_correzioni > 1:
-                if st.button("➖ Rimuovi correzione"):
-                    st.session_state.num_correzioni -= 1
+            # Use number input instead of buttons to avoid form conflicts
+            new_num = st.number_input("Numero correzioni", 
+                                    min_value=1, 
+                                    max_value=10, 
+                                    value=st.session_state.num_correzioni,
+                                    key="num_correzioni_input")
+            if new_num != st.session_state.num_correzioni:
+                st.session_state.num_correzioni = new_num
         
         correzioni = []
         for i in range(st.session_state.num_correzioni):
@@ -150,14 +154,11 @@ class VerbaleCorrezioniTemplate(DocumentTemplate):
         
         if show_preview:
             try:
-                with st.expander("📄 Anteprima del Verbale", expanded=True):
-                    preview_content = self._generate_preview_text(form_data)
-                    st.markdown(preview_content)
-                    
+                preview_text = self._generate_preview_text(form_data)
+                # Anteprima NON modificabile, stessa UX del template completo
+                st.text_area("", preview_text, height=600, disabled=True)
             except Exception as e:
-                st.error(f"Errore nella generazione dell'anteprima: {str(e)}")
-                st.write("**Dati disponibili per debug:**")
-                st.json(form_data)
+                st.error(f"Errore nell'anteprima: {e}")
     
     def _generate_preview_text(self, data: dict) -> str:
         """Genera il testo di anteprima del verbale"""
@@ -195,17 +196,78 @@ Assume la presidenza ai sensi dell'art. [...] dello statuto sociale il Sig. **{d
         # Sezione partecipanti
         soci = data.get('soci', [])
         if soci:
-            preview += "\n   - nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro [...] pari al [...]% del Capitale Sociale:\n"
+            # Calcola totali euro e percentuale
+            totale_euro = 0.0
+            totale_perc = 0.0
+            capitale_raw = str(data.get('capitale_sociale', '0')).replace('.', '').replace(',', '.')
+            try:
+                capitale_float = float(capitale_raw)
+            except ValueError:
+                capitale_float = 0.0
+
             for socio in soci:
-                nome = socio.get('nome', '[NOME SOCIO]')
-                quota = socio.get('quota_euro', '[QUOTA]')
-                percentuale = socio.get('quota_percentuale', '[%]')
-                
-                if socio.get('tipo_partecipazione') == 'Delegato':
-                    delegante = socio.get('delegato', '[DELEGANTE]')
-                    preview += f"     - il Sig. **{nome}** delegato del socio Sig. **{delegante}** recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale\n"
+                if isinstance(socio, dict):
+                    # somma euro
+                    euro_raw = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
+                    try:
+                        totale_euro += float(euro_raw or 0)
+                    except ValueError:
+                        pass
+                    # somma percentuale se presente, altrimenti calcola
+                    perc_raw = socio.get('quota_percentuale', '')
+                    if perc_raw:
+                        try:
+                            totale_perc += float(str(perc_raw).replace('%', '').replace(',', '.'))
+                        except ValueError:
+                            pass
+                    else:
+                        try:
+                            euro_val = float(euro_raw or 0)
+                            if capitale_float:
+                                totale_perc += euro_val / capitale_float * 100
+                        except ValueError:
+                            pass
+
+            formatted_euro = CommonDataHandler.format_currency(totale_euro)
+            formatted_perc = CommonDataHandler.format_percentage(totale_perc)
+
+            preview += f"\n   - nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_euro} pari al {formatted_perc} del Capitale Sociale:\n"
+            for socio in soci:
+                if not isinstance(socio, dict) or not socio.get('nome'):
+                    continue
+                nome = socio.get('nome')
+                quota_euro = CommonDataHandler.format_currency(socio.get('quota_euro', '0'))
+                quota_perc = socio.get('quota_percentuale', '')
+                if not quota_perc:
+                    # calcola
+                    try:
+                        euro_val = float(str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.'))
+                        quota_perc = CommonDataHandler.format_percentage(euro_val / capitale_float * 100) if capitale_float else '[%]'
+                    except ValueError:
+                        quota_perc = '[%]'
                 else:
-                    preview += f"     - il Sig. **{nome}** socio recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale\n"
+                    quota_perc = CommonDataHandler.clean_percentage(quota_perc)
+
+                tipo_sogg = socio.get('tipo_soggetto', 'Persona Fisica')
+                tipo_part = socio.get('tipo_partecipazione', 'Diretto')
+                delegato = socio.get('delegato', '').strip()
+                rappresentante = socio.get('rappresentante_legale', '').strip()
+
+                if tipo_part == 'Delegato' and delegato:
+                    if tipo_sogg == 'Società':
+                        line = f"il Sig. {delegato} delegato della società {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                    else:
+                        line = f"il Sig. {delegato} delegato del socio Sig. {nome} recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                else:
+                    if tipo_sogg == 'Società':
+                        if rappresentante:
+                            line = f"la società {nome}, rappresentata dal Sig {rappresentante}, socia recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                        else:
+                            line = f"la società {nome} socia recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                    else:
+                        line = f"il Sig. {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+
+                preview += f"     - {line}\n"
         
         preview += f"""
 3. che gli intervenuti sono legittimati alla presente assemblea;
@@ -233,7 +295,7 @@ Si passa quindi allo svolgimento dell'ordine del giorno.
 
 ---
 
-## Svolgimento dell'Ordine del Giorno
+*     *     *
 
 Il Presidente ricorda agli intervenuti che l'assemblea dei soci riunitasi lo scorso **{data.get('data_verbale_precedente', '[DATA PRECEDENTE]')}** ha deliberato **{data.get('delibera_precedente', '[DELIBERA]')}**; purtroppo, causa un errore materiale, il verbale della suddetta assemblea riporta i termini errati:
 """
@@ -279,36 +341,38 @@ _________________                    _________________
         return preview
     
     def generate_document(self, data: dict) -> Document:
-        """Genera il documento Word del verbale di correzioni"""
+        """Genera il documento Word del verbale di correzioni. Se l'utente ha modificato l'anteprima viene usato il testo personalizzato."""
+
+        # Genera il documento con la struttura automatica in stile "completo"
         doc = Document()
-        
+
         # Imposta gli stili del documento
         self._setup_document_styles(doc)
-        
+
         # Header aziendale
         self._add_company_header(doc, data)
-        
+
         # Titolo del verbale
         self._add_verbale_title(doc, data)
-        
+
         # Sezione di apertura
         self._add_opening_section(doc, data)
-        
+
         # Sezione partecipanti
         self._add_participants_section(doc, data)
-        
+
         # Dichiarazioni preliminari
         self._add_preliminary_statements(doc, data)
-        
+
         # Discussione delle correzioni
         self._add_correzioni_discussion(doc, data)
-        
+
         # Sezione di chiusura
         self._add_closing_section(doc, data)
-        
+
         # Firme
         self._add_signatures(doc, data)
-        
+
         return doc
     
     def _setup_document_styles(self, doc):
@@ -393,18 +457,80 @@ _________________                    _________________
         # Aggiungi soci
         soci = data.get('soci', [])
         if soci:
-            participants_p.add_run(f"\nnonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro [...] pari al [...]% del Capitale Sociale:")
-            
+            # Calcola totali euro e percentuale
+            totale_euro = 0.0
+            totale_perc = 0.0
+            capitale_raw = str(data.get('capitale_sociale', '0')).replace('.', '').replace(',', '.')
+            try:
+                capitale_float = float(capitale_raw)
+            except ValueError:
+                capitale_float = 0.0
+
             for socio in soci:
-                nome = socio.get('nome', '[NOME SOCIO]')
-                quota = socio.get('quota_euro', '[QUOTA]')
-                percentuale = socio.get('quota_percentuale', '[%]')
-                
-                if socio.get('tipo_partecipazione') == 'Delegato':
-                    delegante = socio.get('delegato', '[DELEGANTE]')
-                    participants_p.add_run(f"\nil Sig. {nome} delegato del socio Sig. {delegante} recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale")
+                if isinstance(socio, dict):
+                    # somma euro
+                    euro_raw = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
+                    try:
+                        totale_euro += float(euro_raw or 0)
+                    except ValueError:
+                        pass
+                    # somma percentuale se presente, altrimenti calcola
+                    perc_raw = socio.get('quota_percentuale', '')
+                    if perc_raw:
+                        try:
+                            totale_perc += float(str(perc_raw).replace('%', '').replace(',', '.'))
+                        except ValueError:
+                            pass
+                    else:
+                        try:
+                            euro_val = float(euro_raw or 0)
+                            if capitale_float:
+                                totale_perc += euro_val / capitale_float * 100
+                        except ValueError:
+                            pass
+
+            formatted_euro = CommonDataHandler.format_currency(totale_euro)
+            formatted_perc = CommonDataHandler.format_percentage(totale_perc)
+
+            participants_p.add_run(f"\nnonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_euro} pari al {formatted_perc} del Capitale Sociale:")
+
+            # Elenco dettagliato
+            for socio in soci:
+                if not isinstance(socio, dict) or not socio.get('nome'):
+                    continue
+                nome = socio.get('nome')
+                quota_euro = CommonDataHandler.format_currency(socio.get('quota_euro', '0'))
+                quota_perc = socio.get('quota_percentuale', '')
+                if not quota_perc:
+                    # calcola
+                    try:
+                        euro_val = float(str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.'))
+                        quota_perc = CommonDataHandler.format_percentage(euro_val / capitale_float * 100) if capitale_float else '[%]'
+                    except ValueError:
+                        quota_perc = '[%]'
                 else:
-                    participants_p.add_run(f"\nil Sig. {nome} socio recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale")
+                    quota_perc = CommonDataHandler.clean_percentage(quota_perc)
+
+                tipo_sogg = socio.get('tipo_soggetto', 'Persona Fisica')
+                tipo_part = socio.get('tipo_partecipazione', 'Diretto')
+                delegato = socio.get('delegato', '').strip()
+                rappresentante = socio.get('rappresentante_legale', '').strip()
+
+                if tipo_part == 'Delegato' and delegato:
+                    if tipo_sogg == 'Società':
+                        line = f"il Sig. {delegato} delegato della società {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                    else:
+                        line = f"il Sig. {delegato} delegato del socio Sig. {nome} recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                else:
+                    if tipo_sogg == 'Società':
+                        if rappresentante:
+                            line = f"la società {nome}, rappresentata dal Sig {rappresentante}, socia recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                        else:
+                            line = f"la società {nome} socia recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                    else:
+                        line = f"il Sig. {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+
+                participants_p.add_run(f"\n{line}")
         
         doc.add_paragraph()
     
@@ -485,9 +611,8 @@ _________________                    _________________
         doc.add_paragraph()
         doc.add_paragraph()
         
-        # Tabella per le firme
-        signature_table = doc.add_table(rows=3, cols=2)
-        signature_table.style = 'Table Grid'
+        # Tabella per le firme usando il metodo sicuro
+        signature_table = self._create_table_with_style(doc, rows=3, cols=2)
         
         # Prima riga - titoli
         signature_table.cell(0, 0).text = "Il Presidente"

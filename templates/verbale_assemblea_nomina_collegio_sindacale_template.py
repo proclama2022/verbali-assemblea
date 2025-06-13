@@ -14,6 +14,7 @@ if src_path not in sys.path:
 
 from document_templates import DocumentTemplate, DocumentTemplateFactory
 from common_data_handler import CommonDataHandler
+from base_verbale_template import BaseVerbaleTemplate
 from docx import Document
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -23,7 +24,7 @@ import streamlit as st
 import pandas as pd
 import re
 
-class VerbaleNominaCollegioSindacaleTemplate(DocumentTemplate):
+class VerbaleNominaCollegioSindacaleTemplate(BaseVerbaleTemplate):
     """Template per Verbale di Assemblea dei Soci - Nomina del Collegio Sindacale"""
     
     def get_template_name(self) -> str:
@@ -170,9 +171,33 @@ class VerbaleNominaCollegioSindacaleTemplate(DocumentTemplate):
             show_preview = st.checkbox("Mostra anteprima", value=False, key="preview_checkbox")
         
         if show_preview:
-            with st.expander("📄 Anteprima del Verbale", expanded=True):
+            try:
+                # Debug dettagliato: mostra i dati estratti
+                with st.expander("Debug: Dati estratti dal form"):
+                    st.json(form_data)
+                    
+                    # Debug specifico per i soci
+                    if 'soci' in form_data and form_data['soci']:
+                        st.subheader("Debug Soci:")
+                        for i, socio in enumerate(form_data['soci']):
+                            st.write(f"Socio {i+1}:")
+                            st.write(f"  - Nome: {socio.get('nome', 'N/A')}")
+                            st.write(f"  - Tipo Soggetto: {socio.get('tipo_soggetto', 'N/A')}")
+                            st.write(f"  - Tipo Partecipazione: {socio.get('tipo_partecipazione', 'N/A')}")
+                            st.write(f"  - Delegato: {socio.get('delegato', 'N/A')}")
+                            st.write(f"  - Rappresentante Legale: {socio.get('rappresentante_legale', 'N/A')}")
+                            st.write(f"  - Presente: {socio.get('presente', 'N/A')}")
+                            st.write("---")
+                
                 preview_text = self._generate_preview_text(form_data)
-                st.text_area("", value=preview_text, height=400, key="preview_text")
+                st.text_area(
+                    "Contenuto del verbale:",
+                    value=preview_text,
+                    height=600,
+                    key="preview_text_nomina_collegio"
+                )
+            except Exception as e:
+                st.error(f"Errore nell'anteprima: {e}")
     
     def _generate_preview_text(self, data: dict) -> str:
         """Genera il testo di anteprima del verbale"""
@@ -232,12 +257,76 @@ Assume la presidenza ai sensi dell'art. [...] dello statuto sociale il Sig. {pre
         # Aggiungi soci
         soci = data.get('soci', [])
         if soci:
-            text += f"nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro [...] pari al [...]% del Capitale Sociale:\n"
+            total_quota_euro = 0.0
+            total_quota_percentuale = 0.0
+
             for socio in soci:
-                nome_socio = socio.get('nome', '[NOME SOCIO]')
-                quota = socio.get('quota_valore', '[QUOTA]')
-                perc = socio.get('quota_percentuale', '[%]')
-                text += f"il Sig. {nome_socio} socio recante una quota pari a nominali euro {quota} pari al {perc}% del Capitale Sociale\n"
+                if isinstance(socio, dict):
+                    try:
+                        # Rimuovi punti e sostituisci virgola con punto per la conversione a float
+                        quota_euro_str = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
+                        total_quota_euro += float(quota_euro_str)
+                    except ValueError:
+                        pass # Ignora valori non numerici
+
+                    try:
+                        quota_percentuale_str = str(socio.get('quota_percentuale', '0')).replace(',', '.')
+                        total_quota_percentuale += float(quota_percentuale_str)
+                    except ValueError:
+                        pass # Ignora valori non numerici
+
+            # Formattazione per l'output italiano
+            formatted_total_quota_euro = f"{total_quota_euro:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            formatted_total_quota_percentuale = f"{total_quota_percentuale:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+            text += f"- Soci presenti: {len(soci)} per un totale di Euro {formatted_total_quota_euro} ({formatted_total_quota_percentuale}% del capitale sociale)\n"
+                        total_quota_percentuale += float(quota_percentuale_str)
+                    except ValueError:
+                        pass # Ignora valori non numerici
+            
+            # Formatta i totali per la visualizzazione
+            formatted_total_quota_euro = f"{total_quota_euro:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') # Formato italiano
+            formatted_total_quota_percentuale = f"{total_quota_percentuale:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') # Formato italiano
+
+            text += f"nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_total_quota_euro} pari al {formatted_total_quota_percentuale}% del Capitale Sociale:\n"
+            for socio in soci:
+                if isinstance(socio, dict):
+                    nome = socio.get('nome', '[Nome Socio]')
+                    quota_value = socio.get('quota_euro', '')
+                    percentuale_value = socio.get('quota_percentuale', '')
+                    
+                    # Gestione robusta dei valori nulli o vuoti
+                    quota = '[Quota]' if quota_value is None or str(quota_value).strip() == '' else str(quota_value).strip()
+                    percentuale = '[%]' if percentuale_value is None or str(percentuale_value).strip() == '' else str(percentuale_value).strip()
+                    
+                    tipo_partecipazione = socio.get('tipo_partecipazione', 'Diretta')
+                    tipo_soggetto = socio.get('tipo_soggetto', 'Persona Fisica')
+                    rappresentante_legale = socio.get('rappresentante_legale', '')
+                    
+                    # Determina il prefisso basato sul tipo di soggetto
+                    if tipo_soggetto == 'Società':
+                        prefisso = "la società"
+                        if rappresentante_legale:
+                            rappresentante_text = f" nella persona del suo rappresentante legale {rappresentante_legale}"
+                        else:
+                            rappresentante_text = " nella persona del suo rappresentante legale [Nome Rappresentante]"
+                    else:
+                        prefisso = "il Sig"
+                        rappresentante_text = ""
+                    
+                    if tipo_partecipazione == 'Delegato':
+                        delegato = socio.get('delegato', '[Delegato]')
+                        if tipo_soggetto == 'Società':
+                            text += f"il Sig {delegato} delegato di {prefisso} {nome}{rappresentante_text} recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale\n"
+                        else:
+                            text += f"il Sig {delegato} delegato del socio {prefisso} {nome} recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale\n"
+                    else:
+                        if tipo_soggetto == 'Società':
+                            text += f"{prefisso} {nome}{rappresentante_text} socio recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale\n"
+                        else:
+                            text += f"{prefisso} {nome} socio recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale\n"
+                else:
+                    text += f"il Sig {socio} socio recante una quota pari a nominali euro [Quota] pari al [%]% del Capitale Sociale\n"
         
         text += f"""
 {next_num+1} - che gli intervenuti sono legittimati alla presente assemblea;
@@ -329,9 +418,26 @@ _________________            _________________
     
     def generate_document(self, data: dict) -> Document:
         """Genera il documento Word utilizzando i dati forniti"""
+        import os
         
-        # Crea un nuovo documento
-        doc = Document()
+        # Utilizza il template .docx esistente per mantenere la formattazione
+        template_path = os.path.join(os.path.dirname(__file__), 'template.docx')
+        
+        try:
+            if os.path.exists(template_path):
+                doc = Document(template_path)
+                # Rimuovi il contenuto esistente del template mantenendo gli stili
+                for paragraph in doc.paragraphs[:]:
+                    p = paragraph._element
+                    p.getparent().remove(p)
+            else:
+                doc = Document()
+                # Setup stili solo se non usiamo template
+                self._setup_document_styles(doc)
+        except Exception as e:
+            # Fallback a documento vuoto se il template non può essere caricato
+            doc = Document()
+            self._setup_document_styles(doc)
         
         # Imposta stili del documento
         self._setup_document_styles(doc)
@@ -499,8 +605,12 @@ _________________            _________________
             
             for socio in soci:
                 nome_socio = socio.get('nome', '[NOME SOCIO]')
-                quota = socio.get('quota_valore', '[QUOTA]')
-                perc = socio.get('quota_percentuale', '[%]')
+                quota_value = socio.get('quota_euro', '')
+                perc_value = socio.get('quota_percentuale', '')
+                
+                # Gestione robusta dei valori nulli o vuoti
+                quota = '[QUOTA]' if quota_value is None or str(quota_value).strip() == '' else str(quota_value).strip()
+                perc = '[%]' if perc_value is None or str(perc_value).strip() == '' else str(perc_value).strip()
                 
                 p = doc.add_paragraph()
                 p.add_run(f"il Sig. {nome_socio} socio recante una quota pari a nominali euro {quota} pari al {perc}% del Capitale Sociale")

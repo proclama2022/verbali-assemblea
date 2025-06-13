@@ -14,16 +14,17 @@ if src_path not in sys.path:
 
 from document_templates import DocumentTemplate, DocumentTemplateFactory
 from common_data_handler import CommonDataHandler
+from base_verbale_template import BaseVerbaleTemplate
 from docx import Document
 from docx.shared import Inches, Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.enum.style import WD_STYLE_TYPE
 from datetime import date
 import streamlit as st
 import pandas as pd
 import re
 
-class VerbaleApprovazioneBilancioTemplate(DocumentTemplate):
+class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
     """Template per Verbale di Assemblea dei Soci - Approvazione Bilancio"""
     
     def get_template_name(self) -> str:
@@ -52,21 +53,28 @@ class VerbaleApprovazioneBilancioTemplate(DocumentTemplate):
         
         col1, col2 = st.columns(2)
         with col1:
-            form_data["ruolo_presidente"] = st.selectbox("Ruolo del presidente", 
-                                                        CommonDataHandler.get_standard_ruoli_presidente())
-            form_data["data_chiusura"] = st.date_input("Data chiusura bilancio", 
+            form_data["presidente"] = st.text_input("Presidente", form_data.get("presidente", ""))
+            form_data["ruolo_presidente"] = st.selectbox("Ruolo del presidente",
+                                                          CommonDataHandler.get_standard_ruoli_presidente())
+            form_data["data_chiusura"] = st.date_input("Data chiusura bilancio",
                                                       CommonDataHandler.get_default_date_chiusura())
         with col2:
+            form_data["segretario"] = st.text_input("Segretario", form_data.get("segretario", ""))
             # Campi specifici per questo template
-            form_data["tipo_bilancio"] = st.selectbox("Tipo di bilancio", 
-                                                     ["Ordinario", "Abbreviato", "Micro"])
+            form_data["tipo_bilancio"] = st.selectbox("Tipo di bilancio",
+                                                              ["Ordinario", "Abbreviato", "Micro"])
             form_data["presenza_nota_integrativa"] = st.checkbox("Nota integrativa presente", value=True)
         
         # Partecipanti standardizzati usando il CommonDataHandler
         participants_data = CommonDataHandler.extract_and_populate_participants_data(
-            extracted_data, 
+            extracted_data,
             unique_key_suffix="bilancio"
         )
+        # Aggiungi validazione per rappresentante_legale per società
+        for socio in participants_data.get('soci', []):
+            if socio.get('tipo_soggetto') == 'Società' and not socio.get('rappresentante_legale'):
+                # Imposta un valore di default per rappresentante_legale se non presente
+                socio['rappresentante_legale'] = "Rappresentante non specificato"
         form_data.update(participants_data)
         
         # Ordine del giorno specifico per approvazione bilancio
@@ -107,6 +115,14 @@ class VerbaleApprovazioneBilancioTemplate(DocumentTemplate):
             form_data["tipo_destinazione"] = st.selectbox("Tipo principale di destinazione", 
                                                          ["A nuovo", "A riserve", "A dividendi", "Mista"])
         
+        # Campo per Altre Informazioni o Note
+        st.subheader("📝 Altre Informazioni o Note")
+        form_data["altre_informazioni_note"] = st.text_area(
+            "Inserisci qui eventuali altre informazioni, note o clausole specifiche da includere nel verbale:",
+            height=150,
+            key="altre_info_note_bilancio"
+        )
+        
         return form_data
     
     def show_preview(self, form_data: dict):
@@ -126,38 +142,38 @@ class VerbaleApprovazioneBilancioTemplate(DocumentTemplate):
         if show_preview:
             try:
                 # Debug avanzato: mostra alcuni dati per verificare
-                with st.expander("🔍 Debug - Informazioni sui dati", expanded=False):
-                    st.write(f"**Tipo dati ricevuti:** {type(form_data)}")
-                    st.write(f"**Numero di campi:** {len(form_data) if form_data else 0}")
-                    st.write("**Campi principali:**")
-                    st.write(f"- Denominazione: {form_data.get('denominazione', 'NON IMPOSTATA')}")
-                    st.write(f"- Presidente: {form_data.get('presidente', 'NON IMPOSTATO')}")
-                    st.write(f"- Data assemblea: {form_data.get('data_assemblea', 'NON IMPOSTATA')}")
-                    st.write(f"- Soci: {len(form_data.get('soci', []))} presenti")
-                    
-                    # Debug specifico per i soci
-                    soci_debug = form_data.get('soci', [])
-                    if soci_debug:
-                        st.write("**Debug Soci Dettagliato:**")
-                        for i, socio in enumerate(soci_debug):
-                            st.write(f"  Socio {i+1}: {socio}")
-                            # Debug specifico per i nuovi campi
-                            tipo_soggetto = socio.get('tipo_soggetto', 'NON TROVATO')
-                            rappresentante = socio.get('rappresentante_legale', 'NON TROVATO')
-                            st.write(f"    - Tipo Soggetto: {tipo_soggetto}")
-                            st.write(f"    - Rappresentante Legale: {rappresentante}")
-                            
-                            # ⚠️ DEBUG SPECIFICO PER IL PROBLEMA
-                            if tipo_soggetto == 'Società':
-                                if rappresentante and rappresentante != 'NON TROVATO' and rappresentante.strip():
-                                    st.success(f"✅ Società '{socio.get('nome', '')}' ha rappresentante legale: '{rappresentante}'")
-                                else:
-                                    st.error(f"❌ Società '{socio.get('nome', '')}' NON ha rappresentante legale specificato!")
-                                    st.write(f"   Valore grezzo: '{repr(rappresentante)}'")
-                            elif tipo_soggetto == 'Persona Fisica':
-                                st.info(f"ℹ️ '{socio.get('nome', '')}' è una Persona Fisica (rappresentante legale non necessario)")
-                    else:
-                        st.write("❌ Nessun dato sui soci trovato")
+                st.markdown("**🔍 Debug - Informazioni sui dati**")
+                st.write(f"**Tipo dati ricevuti:** {type(form_data)}")
+                st.write(f"**Numero di campi:** {len(form_data) if form_data else 0}")
+                st.write("**Campi principali:**")
+                st.write(f"- Denominazione: {form_data.get('denominazione', 'NON IMPOSTATA')}")
+                st.write(f"- Presidente: {form_data.get('presidente', 'NON IMPOSTATO')}")
+                st.write(f"- Data assemblea: {form_data.get('data_assemblea', 'NON IMPOSTATA')}")
+                st.write(f"- Soci: {len(form_data.get('soci', []))} presenti")
+                
+                # Debug specifico per i soci
+                soci_debug = form_data.get('soci', [])
+                if soci_debug:
+                    st.write("**Debug Soci Dettagliato:**")
+                    for i, socio in enumerate(soci_debug):
+                        st.write(f"  Socio {i+1}: {socio}")
+                        # Debug specifico per i nuovi campi
+                        tipo_soggetto = socio.get('tipo_soggetto', 'NON TROVATO')
+                        rappresentante = socio.get('rappresentante_legale', 'NON TROVATO')
+                        st.write(f"    - Tipo Soggetto: {tipo_soggetto}")
+                        st.write(f"    - Rappresentante Legale: {rappresentante}")
+                        
+                        # ⚠️ DEBUG SPECIFICO PER IL PROBLEMA
+                        if tipo_soggetto == 'Società':
+                            if rappresentante and rappresentante != 'NON TROVATO' and rappresentante.strip():
+                                st.success(f"✅ Società '{socio.get('nome', '')}' ha rappresentante legale: '{rappresentante}'")
+                            else:
+                                st.error(f"❌ Società '{socio.get('nome', '')}' NON ha rappresentante legale specificato!")
+                                st.write(f"   Valore grezzo: '{repr(rappresentante)}'")
+                        elif tipo_soggetto == 'Persona Fisica':
+                            st.info(f"ℹ️ '{socio.get('nome', '')}' è una Persona Fisica (rappresentante legale non necessario)")
+                else:
+                    st.write("❌ Nessun dato sui soci trovato")
                     
                     # Mostra tutti i campi disponibili
                     st.write("**Tutti i campi disponibili:**")
@@ -171,7 +187,6 @@ class VerbaleApprovazioneBilancioTemplate(DocumentTemplate):
                     else:
                         st.error("❌ form_data è vuoto o None!")
                 
-                with st.expander("📄 Anteprima del Verbale", expanded=True):
                     # Debug UI per i soci nell'anteprima
                     if st.checkbox("🔍 Debug Soci nell'Anteprima", key="debug_soci_anteprima"):
                         soci_debug = form_data.get('soci', [])
@@ -208,18 +223,35 @@ class VerbaleApprovazioneBilancioTemplate(DocumentTemplate):
                                     else:
                                         st.error(f"❌ NO MATCH: Rappresentante legale vuoto")
                     
-                    # Genera anteprima con try/catch dettagliato
-                    try:
-                        preview_text = self._generate_preview_text(form_data)
-                        
-                        if not preview_text:
-                            st.error("❌ Anteprima vuota - nessun testo generato")
-                        elif len(preview_text) < 100:
-                            st.warning("⚠️ Anteprima molto breve - possibile errore nei dati")
-                            st.code(preview_text)
-                        else:
-                            st.success("✅ Anteprima generata correttamente")
-                            
+# Genera anteprima con try/catch dettagliato
+try:
+    preview_text = self._generate_preview_text(form_data)
+
+    if not preview_text:
+        st.error("❌ Anteprima vuota - nessun testo generato")
+    elif len(preview_text) < 100:
+        st.warning("⚠️ Anteprima molto breve - possibile errore nei dati")
+        st.code(preview_text)
+    else:
+        st.success("✅ Anteprima generata correttamente")
+
+    # Aggiungi debug per soci nell'anteprima
+    st.write("**Debug Soci nell'Anteprima:**")
+    soci_debug = form_data.get('soci', [])
+    for i, socio in enumerate(soci_debug):
+        st.write(f"Socio {i+1}: {socio.get('nome', 'NOME MANCANTE')}")
+        st.write(f"  Tipo Soggetto: {socio.get('tipo_soggetto', 'NON SPECIFICATO')}")
+        st.write(f"  Rappresentante Legale: {socio.get('rappresentante_legale', 'NON SPECIFICATO')}")
+
+except Exception as e:
+    st.error(f"❌ Errore nella generazione dell'anteprima: {e}")
+    preview_text = "Errore nella generazione dell'anteprima"
+    # Aggiungi log dettagliato dell'errore
+    st.error(f"Tipo di errore: {type(e).__name__}")
+    st.error(f"Dettagli errore: {str(e)}")
+    if hasattr(e, '__dict__'):
+        st.write("Dettagli aggiuntivi:", e.__dict__)
+                    
                     # Campo di testo modificabile per l'anteprima
                     edited_preview_text = st.text_area(
                         "Modifica l'anteprima qui (il documento finale userà questo testo):",
@@ -229,16 +261,15 @@ class VerbaleApprovazioneBilancioTemplate(DocumentTemplate):
                     )
                     # Salva il testo modificato nello stato della sessione per usarlo nella generazione del documento
                     st.session_state['final_document_text'] = edited_preview_text
-                            
-                            # Statistiche anteprima
-                            word_count = len(preview_text.split())
-                            char_count = len(preview_text)
-                            st.caption(f"📊 Statistiche: {word_count} parole, {char_count} caratteri")
-                            
-                            # Pulsante per copiare
-                            st.code(preview_text[:200] + "..." if len(preview_text) > 200 else preview_text)
-                            
-                    except Exception as e:
+                    
+                    # Statistiche anteprima
+                    if 'preview_text' in locals():
+                        word_count = len(preview_text.split())
+                        char_count = len(preview_text)
+                        st.caption(f"📊 Statistiche: {word_count} parole, {char_count} caratteri")
+                        
+                        # Pulsante per copiare
+                        st.code(preview_text[:200] + "..." if len(preview_text) > 200 else preview_text)
                         st.error(f"❌ Errore nella generazione dell'anteprima: {str(e)}")
                         st.code(f"Errore dettagliato: {repr(e)}")
                         
@@ -340,7 +371,31 @@ class VerbaleApprovazioneBilancioTemplate(DocumentTemplate):
             # Amministratori
             amministratori = data.get('amministratori', [])
             ruolo_presidente = data.get('ruolo_presidente', 'Amministratore Unico')
-            
+
+            # Calcolo e visualizzazione quote totali soci
+            soci = data.get('soci', [])
+            total_quota_euro = 0.0
+            total_quota_percentuale = 0.0
+
+            for socio in soci:
+                try:
+                    quota_euro_str = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
+                    total_quota_euro += float(quota_euro_str)
+                except (ValueError, TypeError):
+                    pass # Ignora valori non numerici
+
+                try:
+                    quota_percentuale_str = str(socio.get('quota_percentuale', '0')).replace(',', '.')
+                    total_quota_percentuale += float(quota_percentuale_str)
+                except (ValueError, TypeError):
+                    pass # Ignora valori non numerici
+
+            # Formattazione per l'output italiano
+            formatted_total_quota_euro = f"{total_quota_euro:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            formatted_total_quota_percentuale = f"{total_quota_percentuale:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+            preview += f"\n- Soci presenti: {len(soci)} per un totale di Euro {formatted_total_quota_euro} ({formatted_total_quota_percentuale}% del capitale sociale)\n"
+
             # Determina se è Amministratore Unico o CdA
             if ruolo_presidente == 'Amministratore Unico' or len(amministratori) <= 1:
                 preview += f"l'Amministratore Unico nella persona del suddetto Presidente Sig. {presidente}\n"
@@ -537,6 +592,12 @@ class VerbaleApprovazioneBilancioTemplate(DocumentTemplate):
             
             ora_fine = data.get('ora_fine', '[ORA FINE]')
             preview += f"L'assemblea viene sciolta alle ore {ora_fine}.\n"
+
+            # Aggiunta di Altre Informazioni o Note all'anteprima
+            altre_info = data.get('altre_informazioni_note', '')
+            if altre_info and altre_info.strip():
+                preview += "\nALTRA INFORMAZIONI O NOTE:\n"
+                preview += f"{altre_info.strip()}\n"
             
             return preview
             
@@ -561,10 +622,21 @@ class VerbaleApprovazioneBilancioTemplate(DocumentTemplate):
             return self._create_document_from_text(st.session_state.final_document_text)
         else:
             # Genera il documento normalmente se non c'è testo modificato
-            doc = Document()
+            # Utilizza il template .docx esistente per mantenere la formattazione
+            import os
+            template_path = os.path.join(os.path.dirname(__file__), 'template.docx')
             
-            # Configurazione stili del documento
-            self._setup_document_styles(doc)
+            try:
+                if os.path.exists(template_path):
+                    doc = Document(template_path)
+                else:
+                    doc = Document()
+                    # Configurazione stili del documento solo se non usiamo template
+                    self._setup_document_styles(doc)
+            except Exception as e:
+                # Fallback a documento vuoto se il template non può essere caricato
+                doc = Document()
+                self._setup_document_styles(doc)
             
             # Intestazione società
             self._add_company_header(doc, data)
@@ -593,356 +665,704 @@ class VerbaleApprovazioneBilancioTemplate(DocumentTemplate):
             return doc
     
     def _create_document_from_text(self, text: str) -> Document:
-        """Crea un documento Word dal testo modificato dall'utente"""
-        doc = Document()
+        """Crea un documento Word dal testo modificato dall'utente con formattazione automatica"""
+        # Utilizza il template .docx esistente per mantenere la formattazione
+        import os
+        template_path = os.path.join(os.path.dirname(__file__), 'template.docx')
         
-        # Configurazione stili di base
-        self._setup_document_styles(doc)
-        
-        # Dividi il testo in paragrafi e aggiungili al documento
-        paragraphs = text.split('\n')
-        
-        for paragraph_text in paragraphs:
-            if paragraph_text.strip():  # Ignora le righe vuote
-                p = doc.add_paragraph(paragraph_text)
-                # Applica formattazione di base
-                p.style.font.name = 'Times New Roman'
-                p.style.font.size = Pt(11)
+        try:
+            if os.path.exists(template_path):
+                doc = Document(template_path)
+                # Rimuovi il contenuto esistente del template mantenendo gli stili
+                for paragraph in doc.paragraphs[:]:
+                    p = paragraph._element
+                    p.getparent().remove(p)
             else:
-                # Aggiungi una riga vuota
-                doc.add_paragraph()
+                doc = Document()
+                # Configurazione stili di base solo se non usiamo template
+                self._setup_document_styles(doc)
+        except Exception as e:
+            # Fallback a documento vuoto se il template non può essere caricato
+            doc = Document()
+            self._setup_document_styles(doc)
+        
+        # Analizza la struttura del testo e applica la formattazione automatica
+        sections = self._analyze_text_structure(text)
+        
+        for section in sections:
+            self._add_formatted_section(doc, section)
         
         return doc
     
     def _setup_document_styles(self, doc):
-        """Configura gli stili del documento"""
+        """Configura gli stili del documento in modo più robusto e completo."""
+        styles = doc.styles
+
+    def _analyze_text_structure(self, text: str) -> list:
+        """
+        Analizza il testo e restituisce una lista di sezioni con i loro stili
+        """
+        sections = []
+        lines = text.split('\n')
+        
+        for i, line in enumerate(lines):
+            line_stripped = line.strip()
+            
+            # Riga vuota
+            if not line_stripped:
+                sections.append({
+                    'type': 'empty', 
+                    'content': '', 
+                    'style': None,
+                    'original_line': line
+                })
+                continue
+            
+            # 1. Intestazione aziendale (prime 5 righe, spesso maiuscolo, contiene nome società)
+            if i < 5 and (line_stripped.isupper() or 
+                         any(keyword in line_stripped.upper() for keyword in 
+                             ['S.R.L.', 'S.P.A.', 'S.R.L', 'SPA', 'SRL', 'SEDE', 'CAPITALE', 'CODICE'])):
+                sections.append({
+                    'type': 'company_header', 
+                    'content': line_stripped, 
+                    'style': 'CompanyHeader',
+                    'original_line': line
+                })
+                
+            # 2. Titolo principale verbale
+            elif ('VERBALE' in line_stripped.upper() and 'ASSEMBLEA' in line_stripped.upper()):
+                sections.append({
+                    'type': 'main_title', 
+                    'content': line_stripped, 
+                    'style': 'VerbaleTitle',
+                    'original_line': line
+                })
+                
+            # 3. Sottotitoli (parentesi o date)
+            elif ((line_stripped.startswith('(') and line_stripped.endswith(')')) or 
+                  'del ' in line_stripped or 'DEL ' in line_stripped):
+                sections.append({
+                    'type': 'subtitle', 
+                    'content': line_stripped, 
+                    'style': 'VerbaleSubtitle',
+                    'original_line': line
+                })
+                
+            # 4. Intestazioni di sezione (maiuscolo, parole chiave specifiche)
+            elif (line_stripped.isupper() and len(line_stripped) > 5 and
+                  any(keyword in line_stripped for keyword in 
+                      ['ORDINE', 'SOCI', 'AMMINISTRATORI', 'PUNTO', 'DELIBERA', 'PRESENTE', 'RAPPRESENTAT'])):
+                sections.append({
+                    'type': 'section_header', 
+                    'content': line_stripped, 
+                    'style': 'SectionHeader',
+                    'original_line': line
+                })
+                
+            # 5. Separatori (linee di asterischi o trattini)
+            elif line_stripped in ['*     *     *', '* * *', '---', '___'] or line_stripped.startswith('_' * 10):
+                sections.append({
+                    'type': 'separator', 
+                    'content': line_stripped, 
+                    'style': 'BodyText',
+                    'original_line': line,
+                    'center': True
+                })
+                
+            # 6. Elenchi puntati
+            elif line_stripped.startswith(('•', '-', '*', '- ', '• ')):
+                sections.append({
+                    'type': 'bullet_list', 
+                    'content': line_stripped, 
+                    'style': 'List Bullet',
+                    'original_line': line
+                })
+                
+            # 7. Elenchi numerati
+            elif re.match(r'^\d+[\.\)]\s', line_stripped):
+                sections.append({
+                    'type': 'numbered_list', 
+                    'content': line_stripped, 
+                    'style': 'List Number',
+                    'original_line': line
+                })
+                
+            # 8. Totale quote (formattazione speciale)
+            elif 'Totale quote rappresentate' in line_stripped or 'totale quote' in line_stripped.lower():
+                sections.append({
+                    'type': 'total_summary', 
+                    'content': line_stripped, 
+                    'style': 'BodyText',
+                    'original_line': line,
+                    'bold': True
+                })
+                
+            # 9. Testo normale
+            else:
+                sections.append({
+                    'type': 'body_text', 
+                    'content': line_stripped, 
+                    'style': 'BodyText',
+                    'original_line': line
+                })
+        
+        return sections
+    
+    def _add_formatted_section(self, doc, section):
+        """
+        Aggiunge una sezione al documento con la formattazione appropriata
+        """
+        if section['type'] == 'empty':
+            doc.add_paragraph()
+            return
+            
+        content = section['content']
+        style = section['style']
+        
+        try:
+            if section['type'] == 'company_header':
+                # Intestazione aziendale - centrata
+                p = doc.add_paragraph(content, style=style)
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                
+            elif section['type'] == 'main_title':
+                # Titolo principale - centrato, maiuscolo, grassetto
+                p = doc.add_paragraph(content.upper(), style=style)
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                
+            elif section['type'] == 'subtitle':
+                # Sottotitolo - centrato, grassetto
+                p = doc.add_paragraph(content, style=style)
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                
+            elif section['type'] == 'section_header':
+                # Intestazione sezione - centrata, maiuscolo, grassetto
+                p = doc.add_paragraph(content.upper(), style=style)
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                
+            elif section['type'] == 'separator':
+                # Separatore - centrato
+                p = doc.add_paragraph(content, style=style)
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                
+            elif section['type'] == 'bullet_list':
+                # Elenco puntato
+                # Rimuovi il simbolo del punto se presente, sarà aggiunto automaticamente
+                clean_content = content
+                if content.startswith(('•', '-', '*')):
+                    clean_content = content[1:].strip()
+                elif content.startswith(('- ', '• ')):
+                    clean_content = content[2:].strip()
+                    
+                p = doc.add_paragraph(clean_content, style='List Bullet')
+                
+            elif section['type'] == 'numbered_list':
+                # Elenco numerato
+                # Rimuovi la numerazione se presente, sarà aggiunta automaticamente
+                clean_content = re.sub(r'^\d+[\.\)]\s*', '', content)
+                p = doc.add_paragraph(clean_content, style='List Number')
+                
+            elif section['type'] == 'total_summary':
+                # Totale - grassetto
+                p = doc.add_paragraph(content, style=style)
+                p.runs[0].font.bold = True
+                
+            else:
+                # Testo normale - giustificato
+                p = doc.add_paragraph(content, style=style)
+                p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                
+        except Exception as e:
+            # Fallback a testo normale se c'è un errore
+            p = doc.add_paragraph(content, style='BodyText')
+            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        # Stile 'Normal' (base per il documento)
+        try:
+            normal_style = styles['Normal']
+            normal_style.font.name = 'Times New Roman'
+            normal_style.font.size = Pt(11)
+            normal_style.paragraph_format.space_after = Pt(6)
+            normal_style.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+        except KeyError:
+            # Se 'Normal' non esiste, crealo (improbabile per docx standard)
+            normal_style = styles.add_style('Normal', WD_STYLE_TYPE.PARAGRAPH)
+            normal_style.font.name = 'Times New Roman'
+            normal_style.font.size = Pt(11)
+            normal_style.paragraph_format.space_after = Pt(6)
+            normal_style.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+
         # Stile per intestazione società
         try:
-            company_style = doc.styles.add_style('CompanyHeader', WD_STYLE_TYPE.PARAGRAPH)
-            company_style.font.name = 'Times New Roman'
-            company_style.font.size = Pt(12)
-            company_style.font.bold = True
-            company_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            company_style.paragraph_format.space_after = Pt(6)
-        except:
-            pass
-        
+            company_style = styles.add_style('CompanyHeader', WD_STYLE_TYPE.PARAGRAPH)
+        except ValueError: # Lo stile esiste già
+            company_style = styles['CompanyHeader']
+        company_style.base_style = styles['Normal']
+        company_style.font.name = 'Times New Roman'
+        company_style.font.size = Pt(12)
+        company_style.font.bold = True
+        company_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        company_style.paragraph_format.space_after = Pt(12)
+        company_style.paragraph_format.space_before = Pt(6)
+
         # Stile per titolo verbale
         try:
-            title_style = doc.styles.add_style('VerbaleTitle', WD_STYLE_TYPE.PARAGRAPH)
-            title_style.font.name = 'Times New Roman'
-            title_style.font.size = Pt(14)
-            title_style.font.bold = True
-            title_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            title_style.paragraph_format.space_before = Pt(12)
-            title_style.paragraph_format.space_after = Pt(12)
-        except:
-            pass
-        
-        # Stile per sezioni
+            title_style = styles.add_style('VerbaleTitle', WD_STYLE_TYPE.PARAGRAPH)
+        except ValueError:
+            title_style = styles['VerbaleTitle']
+        title_style.base_style = styles['Normal']
+        title_style.font.name = 'Times New Roman'
+        title_style.font.size = Pt(16)
+        title_style.font.bold = True
+        title_style.font.all_caps = True
+        title_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        title_style.paragraph_format.space_before = Pt(24)
+        title_style.paragraph_format.space_after = Pt(18)
+
+        # Stile per sottotitoli o date sotto il titolo principale
         try:
-            section_style = doc.styles.add_style('SectionHeader', WD_STYLE_TYPE.PARAGRAPH)
-            section_style.font.name = 'Times New Roman'
-            section_style.font.size = Pt(11)
-            section_style.font.bold = True
-            section_style.paragraph_format.space_before = Pt(12)
-            section_style.paragraph_format.space_after = Pt(6)
-        except:
-            pass
+            subtitle_style = styles.add_style('VerbaleSubtitle', WD_STYLE_TYPE.PARAGRAPH)
+        except ValueError:
+            subtitle_style = styles['VerbaleSubtitle']
+        subtitle_style.base_style = styles['Normal']
+        subtitle_style.font.name = 'Times New Roman'
+        subtitle_style.font.size = Pt(12)
+        subtitle_style.font.bold = True
+        subtitle_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        subtitle_style.paragraph_format.space_after = Pt(12)
+        subtitle_style.paragraph_format.space_before = Pt(6)
+
+        # Stile per intestazioni di sezione (es. ORDINE DEL GIORNO)
+        try:
+            section_header_style = styles.add_style('SectionHeader', WD_STYLE_TYPE.PARAGRAPH)
+        except ValueError:
+            section_header_style = styles['SectionHeader']
+        section_header_style.base_style = styles['Normal']
+        section_header_style.font.name = 'Times New Roman'
+        section_header_style.font.size = Pt(14)  # Aumentata dimensione font
+        section_header_style.font.bold = True
+        section_header_style.font.all_caps = True
+        section_header_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER  # Centrato
+        section_header_style.paragraph_format.space_before = Pt(18)
+        section_header_style.paragraph_format.space_after = Pt(8)
+
+        # Stile per testo principale del paragrafo
+        try:
+            body_text_style = styles.add_style('BodyText', WD_STYLE_TYPE.PARAGRAPH)
+        except ValueError:
+            body_text_style = styles['BodyText']
+        body_text_style.base_style = styles['Normal']
+        body_text_style.font.name = 'Times New Roman'
+        body_text_style.font.size = Pt(12)  # Aumentata dimensione font per leggibilità
+        body_text_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        body_text_style.paragraph_format.first_line_indent = Inches(0.0)
+        body_text_style.paragraph_format.line_spacing = 1.15
+        body_text_style.paragraph_format.space_after = Pt(6)
+        body_text_style.paragraph_format.space_before = Pt(0)
+
+        # Stili per elenchi puntati e numerati (se non si usano quelli built-in)
+        try:
+            list_bullet_style = styles.add_style('CustomListBullet', WD_STYLE_TYPE.PARAGRAPH)
+        except ValueError:
+            list_bullet_style = styles['CustomListBullet']
+        list_bullet_style.base_style = styles['BodyText'] # Basato su BodyText per coerenza
+        list_bullet_style.paragraph_format.first_line_indent = Inches(0) # Rimuovi rientro se ListBullet lo gestisce
+        # Nota: la formattazione specifica del punto elenco (es. •) è meglio gestirla con add_paragraph(style='List Bullet')
+
+        try:
+            list_number_style = styles.add_style('CustomListNumber', WD_STYLE_TYPE.PARAGRAPH)
+        except ValueError:
+            list_number_style = styles['CustomListNumber']
+        list_number_style.base_style = styles['BodyText']
+        list_number_style.paragraph_format.first_line_indent = Inches(0)
+        # Nota: la numerazione è meglio gestirla con add_paragraph(style='List Number')
+
+        # Stile per le tabelle (se si vuole uno stile personalizzato di base)
+        try:
+            table_style = styles.add_style('CustomTableGrid', WD_STYLE_TYPE.TABLE)
+            # table_style.base_style = styles['TableGrid'] # Non si può basare uno stile tabella su un altro così facilmente
+            # Configura bordi, font, allineamento per le celle della tabella qui se necessario
+            # Esempio: table_style.font.name = 'Times New Roman'
+            # table_style.font.size = Pt(10)
+        except ValueError:
+            pass # Lo stile tabella esiste già o non si vuole personalizzare oltre 'Table Grid'
+
     
     def _add_company_header(self, doc, data):
-        """Aggiunge l'intestazione della società"""
-        # Denominazione
-        p = doc.add_paragraph(data['denominazione'])
-        p.style = 'CompanyHeader' if 'CompanyHeader' in [s.name for s in doc.styles] else 'Normal'
-        if p.style == 'Normal':
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run = p.runs[0]
-            run.font.bold = True
-            run.font.size = Pt(12)
+        """Aggiunge l'intestazione della società utilizzando stili definiti."""
+        # Nome società - stile principale
+        company_name = doc.add_paragraph(data.get('denominazione', 'N/A').upper(), style='CompanyHeader')
         
-        # Sede
-        p = doc.add_paragraph(f"Sede legale: {data['sede_legale']}")
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
+        # Sede legale - stile secondario
+        sede_text = f"Sede in {data.get('sede_legale', 'N/A')}"
+        p_sede = doc.add_paragraph(sede_text, style='CompanyHeader')
+        p_sede.runs[0].font.size = Pt(10)
+        p_sede.runs[0].font.bold = False
+        p_sede.paragraph_format.space_before = Pt(0)
+        p_sede.paragraph_format.space_after = Pt(0)
+
         # Capitale sociale
-        capitale_deliberato = str(data.get('capitale_deliberato', '10.000,00')).strip()
-        capitale_versato = str(data.get('capitale_versato', '10.000,00')).strip()
-        capitale_sottoscritto = str(data.get('capitale_sottoscritto', '10.000,00')).strip()
+        capitale_deliberato = str(data.get('capitale_deliberato', 'N/A')).strip()
+        capitale_versato = str(data.get('capitale_versato', 'N/A')).strip()
+        capitale_sottoscritto = str(data.get('capitale_sottoscritto', 'N/A')).strip()
         
-        # Gestione "i.v." (interamente versato) - solo se versato = deliberato
-        if capitale_versato == capitale_deliberato:
+        if capitale_versato == capitale_deliberato and capitale_deliberato != 'N/A':
+            capitale_text = f"Capitale sociale Euro {capitale_deliberato} i.v."
+        elif capitale_deliberato != 'N/A':
             capitale_text = f"Capitale sociale Euro {capitale_deliberato} i.v."
         else:
-            capitale_text = f"Capitale sociale deliberato Euro {capitale_deliberato}, sottoscritto Euro {capitale_sottoscritto}, versato Euro {capitale_versato}"
+            capitale_text = "Capitale sociale: N/A"
         
-        p = doc.add_paragraph(capitale_text)
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
+        p_capitale = doc.add_paragraph(capitale_text, style='CompanyHeader')
+        p_capitale.runs[0].font.size = Pt(10)
+        p_capitale.runs[0].font.bold = False
+        p_capitale.paragraph_format.space_before = Pt(0)
+        p_capitale.paragraph_format.space_after = Pt(0)
+
         # Codice fiscale
-        p = doc.add_paragraph(f"Codice fiscale e Partita IVA: {data['codice_fiscale']}")
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cf_piva_text = f"Codice fiscale: {data.get('codice_fiscale', 'N/A')}"
+        p_cf = doc.add_paragraph(cf_piva_text, style='CompanyHeader')
+        p_cf.runs[0].font.size = Pt(10)
+        p_cf.runs[0].font.bold = False
+        p_cf.paragraph_format.space_before = Pt(0)
+        p_cf.paragraph_format.space_after = Pt(12)
         
         # Riga separatrice
-        doc.add_paragraph("_" * 60).alignment = WD_ALIGN_PARAGRAPH.CENTER
+        hr_paragraph = doc.add_paragraph()
+        hr_run = hr_paragraph.add_run('_' * 80)
+        hr_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        hr_paragraph.paragraph_format.space_before = Pt(6)
+        hr_paragraph.paragraph_format.space_after = Pt(18)
     
     def _add_verbale_title(self, doc, data):
-        """Aggiunge il titolo del verbale"""
-        doc.add_paragraph()  # Spazio
+        """Aggiunge il titolo del verbale utilizzando stili definiti."""
+        doc.add_paragraph("VERBALE DI ASSEMBLEA DEI SOCI", style='VerbaleTitle')
         
-        p = doc.add_paragraph("VERBALE DI ASSEMBLEA DEI SOCI")
-        p.style = 'VerbaleTitle' if 'VerbaleTitle' in [s.name for s in doc.styles] else 'Normal'
-        if p.style == 'Normal':
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            run = p.runs[0]
-            run.font.bold = True
-            run.font.size = Pt(14)
+        tipo_assemblea = data.get('tipo_assemblea', 'Ordinaria').upper()
+        doc.add_paragraph(f"({tipo_assemblea})", style='VerbaleSubtitle')
         
-        tipo = data.get('tipo_assemblea', 'Ordinaria').upper()
-        p = doc.add_paragraph(f"({tipo})")
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        p = doc.add_paragraph(f"del {data['data_assemblea'].strftime('%d/%m/%Y')}")
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.runs[0]
-        run.font.bold = True
+        data_assemblea_str = data.get('data_assemblea', date.today()).strftime('%d/%m/%Y')
+        # Applica lo stile 'VerbaleSubtitle' e poi sovrascrivi se necessario per la data
+        p_data = doc.add_paragraph(style='VerbaleSubtitle') 
+        p_data.text = f"del {data_assemblea_str}"
+        # Lo stile VerbaleSubtitle ha già italic = True. Se vuoi bold, aggiungilo.
+        p_data.runs[0].font.bold = True # Data in grassetto come richiesto
+        p_data.paragraph_format.space_before = Pt(0)
     
     def _add_opening_section(self, doc, data):
-        """Aggiunge la sezione di apertura"""
-        doc.add_paragraph()  # Spazio
+        """Aggiunge la sezione di apertura utilizzando lo stile BodyText."""
+        # doc.add_paragraph() # Spazio gestito da space_before/after degli stili
         
-        data_str = data['data_assemblea'].strftime('%d/%m/%Y')
-        ora_str = data.get('ora_inizio', '09:00')
-        luogo = data.get('luogo_assemblea', data['sede_legale'])
+        data_str = data.get('data_assemblea', date.today()).strftime('%d/%m/%Y')
+        ora_str = data.get('ora_inizio', 'HH:MM') # Placeholder se non fornita
+        luogo = data.get('luogo_assemblea', data.get('sede_legale', 'N/A'))
         
         text = f"In data {data_str}, alle ore {ora_str}, presso {luogo}, "
-        if data.get('audioconferenza'):
-            text += "e con la possibilità di partecipazione mediante mezzi di telecomunicazione, "
-        text += f"si è riunita l'Assemblea {data.get('tipo_assemblea', 'Ordinaria')} dei Soci della Società, {data.get('tipo_convocazione', 'regolarmente convocata')} per discutere e deliberare sul seguente:"
+        if data.get('audioconferenza', False):
+            text += "e con la possibilità di partecipazione mediante mezzi di telecomunicazione che ne assicurino l'identificazione, "
+        text += f"si è riunita l'Assemblea {data.get('tipo_assemblea', 'Ordinaria')} dei Soci della Società {data.get('denominazione', 'N/A')}, "
+        text += f"{data.get('tipo_convocazione', 'regolarmente convocata')} per discutere e deliberare sul seguente:"
         
-        doc.add_paragraph(text)
+        doc.add_paragraph(text, style='BodyText')
     
     def _add_participants_section(self, doc, data):
-        """Aggiunge la sezione partecipanti"""
+        """Aggiunge la sezione partecipanti utilizzando stili definiti."""
         # Ordine del giorno
-        doc.add_paragraph().style = 'SectionHeader' if 'SectionHeader' in [s.name for s in doc.styles] else 'Heading 2'
-        p = doc.add_paragraph("ORDINE DEL GIORNO")
-        run = p.runs[0]
-        run.font.bold = True
+        doc.add_paragraph("ORDINE DEL GIORNO", style='SectionHeader')
         
-        for i, punto in enumerate(data.get('punti_ordine_giorno', []), 1):
-            punto_clean = punto.strip()
-            if not punto_clean.startswith(f"{i}."):
-                punto_clean = f"{i}. {punto_clean}"
-            doc.add_paragraph(punto_clean, style='List Number')
-        
-        doc.add_paragraph()
+        punti_odg = data.get('punti_ordine_giorno', [])
+        if not punti_odg:
+            doc.add_paragraph("Nessun punto all'ordine del giorno specificato.", style='BodyText')
+        else:
+            for i, punto in enumerate(punti_odg, 1):
+                punto_clean = str(punto).strip()
+                # Assicurati che la numerazione sia corretta o aggiungila se mancante
+                if not re.match(r"^\d+\.\s*", punto_clean): 
+                    punto_clean = f"{i}. {punto_clean}"
+                p_punto = doc.add_paragraph(style='BodyText')
+                p_punto.text = punto_clean
+                p_punto.paragraph_format.left_indent = Inches(0.5)
+                p_punto.paragraph_format.space_after = Pt(3)
         
         # Presidenza
-        presidente = data.get('presidente', '')
-        ruolo = data.get('ruolo_presidente', 'Amministratore Unico')
-        text = f"Assume la presidenza dell'Assemblea, ai sensi dell'art. [...] dello Statuto Sociale, il Sig. {presidente} in qualità di {ruolo}, il quale constata e dichiara:"
-        doc.add_paragraph(text)
+        presidente = data.get('presidente', 'N/A')
+        ruolo_presidente = data.get('ruolo_presidente', 'Amministratore Unico')
+        articolo_statuto_presidenza = data.get('articolo_statuto_presidenza', '[...]')
+        text_presidenza = f"Assume la presidenza ai sensi dell'art. {articolo_statuto_presidenza} dello statuto sociale il Sig. {presidente} {ruolo_presidente}, il quale dichiara e constata:"
+        doc.add_paragraph(text_presidenza, style='BodyText')
         
         # Dichiarazioni del presidente
         dichiarazioni = [
-            "che l'Assemblea risulta regolarmente costituita e validamente convocata secondo le modalità previste dalla legge e dallo Statuto Sociale;",
-            "che tutti i partecipanti sono legittimati all'intervento;"
+            "- che (come indicato anche nell'avviso di convocazione ed in conformità alle previsioni dell'art. [...] dello statuto sociale) l'intervento all'assemblea può avvenire anche in audioconferenza;",
+            "- che sono presenti/partecipano all'assemblea:"
         ]
         
-        if data.get('audioconferenza'):
-            dichiarazioni.append("che, come previsto dall'avviso di convocazione, è consentita la partecipazione all'assemblea mediante mezzi di telecomunicazione;")
-        
         for i, dich in enumerate(dichiarazioni, 1):
-            doc.add_paragraph(f"{i}) {dich}")
+            p_dich = doc.add_paragraph(style='BodyText')
+            p_dich.text = f"{i} {dich}"
+            p_dich.paragraph_format.left_indent = Inches(0.25)
+            p_dich.paragraph_format.space_after = Pt(3)
         
         # Nomina segretario
-        segretario = data.get('segretario', '')
-        doc.add_paragraph(f"I presenti nominano all'unanimità quale Segretario il Sig. {segretario}, che accetta l'incarico.")
+        segretario = data.get('segretario', 'N/A')
+        if segretario and segretario != 'N/A':
+            text_segretario = f"I presenti all'unanimità chiamano a fungere da segretario il signor {segretario}, che accetta l'incarico."
+            doc.add_paragraph(text_segretario, style='BodyText')
+        else:
+            doc.add_paragraph("Il Presidente svolge anche le funzioni di Segretario.", style='BodyText')
     
     def _add_preliminary_statements(self, doc, data):
-        """Aggiunge le constatazioni preliminari"""
-        doc.add_paragraph()
+        """Aggiunge le constatazioni preliminari utilizzando stili definiti."""
+        doc.add_paragraph("SOCI PRESENTI E RAPPRESENTATI", style='SectionHeader')
         
-        # Soci presenti
-        p = doc.add_paragraph("SOCI PRESENTI E RAPPRESENTATI")
-        run = p.runs[0]
-        run.font.bold = True
-        
-        totale_quote = 0
-        for socio in data.get('soci', []):
-            if socio.get('nome', '').strip() and socio.get('presente', True):
-                nome = socio.get('nome', '')
-                quota_perc = socio.get('quota_percentuale', '')
-                quota_euro = socio.get('quota_euro', '')
+        soci_presenti = [s for s in data.get('soci', []) if s.get('nome', '').strip() and s.get('presente', True)]
+        if not soci_presenti:
+            doc.add_paragraph("Nessun socio risulta presente o rappresentato.", style='BodyText')
+        else:
+            totale_capitale_rappresentato_perc = 0.0
+            # Esempio di calcolo più robusto per il capitale, assumendo che 'quota_euro' sia un numero
+            # totale_capitale_rappresentato_euro = sum(float(str(s.get('quota_euro', '0')).replace(',', '.')) for s in soci_presenti)
+            # capitale_sociale_totale_euro = float(str(data.get('capitale_deliberato', '1')).replace(',', '.')) # Evita divisione per zero
+            # if capitale_sociale_totale_euro > 0:
+            #     totale_capitale_rappresentato_perc = (totale_capitale_rappresentato_euro / capitale_sociale_totale_euro) * 100
+
+            for socio in soci_presenti:
+                nome = socio.get('nome', 'N/A')
+                quota_perc_str = str(socio.get('quota_percentuale', '0')).replace('%', '').replace(',', '.')
+                try:
+                    quota_perc_val = float(quota_perc_str)
+                    totale_capitale_rappresentato_perc += quota_perc_val
+                except ValueError:
+                    quota_perc_val = 0.0 # o gestisci l'errore
+                
+                quota_euro = socio.get('quota_euro', 'N/A')
                 tipo_partecipazione = socio.get('tipo_partecipazione', 'Diretto')
                 delegato = socio.get('delegato', '').strip()
                 tipo_soggetto = socio.get('tipo_soggetto', 'Persona Fisica')
                 rappresentante_legale = socio.get('rappresentante_legale', '').strip()
                 
-                # Gestione completa: delegati e rappresentanti legali - stessa logica dell'anteprima
-                if tipo_partecipazione == 'Delegato' and delegato:
-                    if tipo_soggetto == 'Società':
-                        if rappresentante_legale:
-                            doc.add_paragraph(f"• {delegato} (delegato della società {nome} - legale rappresentante: {rappresentante_legale}) - quota {quota_perc} pari a Euro {quota_euro}", style='List Bullet')
-                        else:
-                            doc.add_paragraph(f"• {delegato} (delegato della società {nome}) - quota {quota_perc} pari a Euro {quota_euro}", style='List Bullet')
-                    else:
-                        doc.add_paragraph(f"• {delegato} (delegato del socio {nome}) - quota {quota_perc} pari a Euro {quota_euro}", style='List Bullet')
-                else:
-                    if tipo_soggetto == 'Società':
-                        if rappresentante_legale:
-                            doc.add_paragraph(f"• {nome} (società - legale rappresentante: {rappresentante_legale}) - quota {quota_perc} pari a Euro {quota_euro}", style='List Bullet')
-                        else:
-                            doc.add_paragraph(f"• {nome} (società) - quota {quota_perc} pari a Euro {quota_euro}", style='List Bullet')
-                    else:
-                        doc.add_paragraph(f"• {nome} (socio) - quota {quota_perc} pari a Euro {quota_euro}", style='List Bullet')
+                desc_socio = f"{nome}"
+                if tipo_soggetto == 'Società':
+                    desc_socio += " (società)"
+                    if rappresentante_legale:
+                        desc_socio += f", legalmente rappresentata da {rappresentante_legale}"
                 
-                # Calcola totale
-                try:
-                    if '%' in quota_perc:
-                        perc_num = float(quota_perc.replace('%', '').replace(',', '.'))
-                        totale_quote += perc_num
-                except:
-                    pass
-        
-        if totale_quote > 0:
-            doc.add_paragraph(f"Totale quote rappresentate: {totale_quote:.1f}%")
-        
-        doc.add_paragraph()
-        
-        # Amministratori presenti
-        p = doc.add_paragraph("AMMINISTRATORI PRESENTI")
-        run = p.runs[0]
-        run.font.bold = True
-        
-        for amm in data.get('amministratori', []):
-            if amm.get('nome', '').strip() and amm.get('presente', True):
-                nome = amm.get('nome', '')
-                carica = amm.get('carica', '')
-                doc.add_paragraph(f"• {nome} - {carica}", style='List Bullet')
-        
-        # Altri presenti
-        if data.get('collegio_sindacale') or data.get('revisore'):
-            doc.add_paragraph()
-            p = doc.add_paragraph("ALTRI PRESENTI")
-            run = p.runs[0]
-            run.font.bold = True
+                if tipo_partecipazione == 'Delegato' and delegato:
+                    desc_socio = f"{delegato} (in qualità di delegato di {desc_socio})"
+                
+                p_socio = doc.add_paragraph(style='BodyText')
+                p_socio.text = f"il Sig. {desc_socio} socio recante una quota pari a nominali euro [{quota_euro}] pari al {quota_perc_val:.3f}% del Capitale Sociale"
+                p_socio.paragraph_format.left_indent = Inches(0.25)
+                p_socio.paragraph_format.space_after = Pt(3)
+
+            p_totale = doc.add_paragraph(style='BodyText')
+            p_totale.text = f"che gli interventi sono legittimati alla presente assemblea;"
+            p_totale.paragraph_format.space_before = Pt(6)
+            p_totale.paragraph_format.space_after = Pt(6)
             
-            if data.get('collegio_sindacale'):
-                doc.add_paragraph("• Collegio Sindacale", style='List Bullet')
-            if data.get('revisore'):
-                doc.add_paragraph("• Revisore Legale", style='List Bullet')
+            p_totale2 = doc.add_paragraph(style='BodyText')
+            p_totale2.text = f"che tutti gli intervenuti dichiarano di aver ricevuto l'avviso di convocazione nei termini di legge e di essere edotti sugli argomenti posti all'ordine del giorno."
+            p_totale2.paragraph_format.space_after = Pt(6)
+            # Aggiungere qui la verifica della validità dell'assemblea (maggioranze costitutive)
+            # Esempio: if totale_capitale_rappresentato_perc >= data.get('maggioranza_costitutiva_perc', 50.0):
+            # doc.add_paragraph("L'Assemblea è validamente costituita per deliberare sugli argomenti posti all'ordine del giorno.", style='BodyText')
+            # else: 
+            # doc.add_paragraph("ATTENZIONE: L'Assemblea potrebbe non essere validamente costituita.", style='BodyText') # Aggiungere logica per quorum
+
+        # Presidente identifica tutti i presenti
+        p_presidente = doc.add_paragraph(style='BodyText')
+        p_presidente.text = f"Il Presidente identifica tutti i soggetti collegati e accerta che la loro partecipazione sia conforme alle previsioni statutarie e di legge, quindi dichiara l'assemblea validamente costituita e atta a deliberare sugli argomenti posti all'ordine del giorno."
+        p_presidente.paragraph_format.space_before = Pt(6)
+        p_presidente.paragraph_format.space_after = Pt(6)
+        
+        # Altri presenti (Sindaci, Revisore, etc.)
+        altri_presenti_list = []
+        if data.get('collegio_sindacale_presente', False):
+            altri_presenti_list.append("i membri del Collegio Sindacale") # Potrebbe essere più dettagliato con i nomi
+        if data.get('revisore_legale_presente', False):
+            altri_presenti_list.append("il Revisore Legale dei Conti") # Nome del revisore
+        # Aggiungere altri eventuali presenti da 'data'
+        
+        if altri_presenti_list:
+            doc.add_paragraph("ALTRI PRESENTI", style='SectionHeader')
+            for altro in altri_presenti_list:
+                doc.add_paragraph(f"• {altro}", style='ListBullet')
     
     def _add_bilancio_discussion(self, doc, data):
-        """Aggiunge la discussione dell'ordine del giorno"""
-        doc.add_paragraph()
-        doc.add_paragraph("Il Presidente dichiara aperta la discussione sull'ordine del giorno.")
-        doc.add_paragraph()
+        """Aggiunge la discussione sull'approvazione del bilancio e destinazione risultato."""
+        doc.add_paragraph("DISCUSSIONE E DELIBERAZIONI SUI PUNTI ALL'ORDINE DEL GIORNO", style='SectionHeader')
+        doc.add_paragraph("Il Presidente dichiara aperta la discussione sui singoli punti all'ordine del giorno.", style='BodyText')
         
-        # Separatore
-        doc.add_paragraph("* * *")
-        doc.add_paragraph()
+        # Esempio per il primo punto (Bilancio)
+        # Questo dovrebbe essere generalizzato o gestito da template specifici se l'OdG è variabile
+        doc.add_paragraph("1. Approvazione del bilancio d'esercizio al [Data Chiusura Bilancio]", style='SectionHeader') # Sottotitolo per il punto
+        # doc.add_paragraph("PRIMO PUNTO ALL'ORDINE DEL GIORNO", style='SectionHeader') # Alternativa
+
+        data_chiusura_bilancio = data.get('data_chiusura_bilancio', data.get('data_assemblea', date.today())).strftime('%d/%m/%Y')
         
-        # Primo punto - Bilancio
-        p = doc.add_paragraph("PRIMO PUNTO ALL'ORDINE DEL GIORNO")
-        run = p.runs[0]
-        run.font.bold = True
-        
-        data_chiusura = data.get('data_chiusura', data['data_assemblea']).strftime('%d/%m/%Y')
-        text = f"Il Presidente illustra il Bilancio di esercizio chiuso al {data_chiusura}, "
-        text += "composto da Stato Patrimoniale, Conto Economico e Nota Integrativa, "
-        if data.get('documenti_allegati'):
-            text += "allegati al presente verbale. "
+        text_illustrazione = f"Il Presidente illustra ai presenti il progetto di Bilancio d'esercizio chiuso al {data_chiusura_bilancio}, "
+        text_illustrazione += "composto da Stato Patrimoniale, Conto Economico e Nota Integrativa. "
+        if data.get('relazione_gestione_presente', False):
+            text_illustrazione += "Viene altresì illustrata la Relazione sulla Gestione. "
+        if data.get('documenti_allegati_bilancio', True): # Assumiamo che siano allegati o disponibili
+            text_illustrazione += "Tali documenti, già messi a disposizione dei soci nei termini di legge, vengono allegati al presente verbale sotto la lettera [Lettera Allegato Bilancio]. "
         else:
-            text += "già in possesso dei Soci. "
+            text_illustrazione += "Tali documenti sono stati messi a disposizione dei soci nei termini di legge. "
+        doc.add_paragraph(text_illustrazione, style='BodyText')
+
+        if data.get('parere_collegio_sindacale_presente', False):
+            text_parere_cs = "Viene data lettura della Relazione del Collegio Sindacale, anch'essa allegata al presente verbale sotto la lettera [Lettera Allegato Relazione CS]."
+            if data.get('parere_collegio_sindacale_favorevole', True):
+                text_parere_cs += " Il Collegio Sindacale ha espresso parere favorevole all'approvazione del bilancio."
+            else:
+                text_parere_cs += " Il Collegio Sindacale ha espresso osservazioni in merito all'approvazione del bilancio, come da relazione."
+            doc.add_paragraph(text_parere_cs, style='BodyText')
         
-        if data.get('sentito_parere_sindaci'):
-            text += "Sentito il parere favorevole del Collegio Sindacale, "
+        if data.get('parere_revisore_presente', False):
+            text_parere_rev = "Viene data lettura della Relazione del Revisore Legale dei Conti, allegata sotto la lettera [Lettera Allegato Relazione Revisore]."
+            # Aggiungere dettagli sul parere del revisore
+            doc.add_paragraph(text_parere_rev, style='BodyText')
+
+        text_discussione = "Dopo ampia ed esauriente discussione, durante la quale vengono forniti tutti i chiarimenti richiesti dai soci, "
+        modalita_voto = "per alzata di mano" if data.get('voto_palese', True) else "a scrutinio segreto"
+        text_discussione += f"il Presidente pone in votazione la proposta di approvazione del bilancio. Si procede alla votazione {modalita_voto}."
+        doc.add_paragraph(text_discussione, style='BodyText')
         
-        text += "dopo breve discussione, "
-        if data.get('voto_palese'):
-            text += "si procede alla votazione per alzata di mano. "
-        else:
-            text += "si procede alla votazione a scrutinio segreto. "
+        # Esito votazione bilancio
+        esito_votazione_bilancio = data.get('esito_votazione_bilancio', 'approvato all\'unanimità')
+        # Qui si potrebbe aggiungere logica per dettagliare voti favorevoli, contrari, astenuti
+        text_delibera_bilancio = f"L'Assemblea dei Soci, con voti {esito_votazione_bilancio},"
+        doc.add_paragraph(text_delibera_bilancio, style='BodyText')
+        doc.add_paragraph("DELIBERA", style='SectionHeader') # Usare uno stile specifico per la parola DELIBERA
         
-        esito = data.get('esito_votazione', 'approvato all\'unanimità')
-        text += f"L'Assemblea, con voti {esito}, delibera:"
-        
-        doc.add_paragraph(text)
-        
-        doc.add_paragraph(f"di approvare il Bilancio di esercizio chiuso al {data_chiusura} e tutti i documenti che lo compongono.", style='List Bullet')
-        
-        doc.add_paragraph()
-        doc.add_paragraph("* * *")
-        doc.add_paragraph()
+        doc.add_paragraph(f"1. di approvare il Bilancio d'esercizio della Società chiuso al {data_chiusura_bilancio}, comprensivo di Stato Patrimoniale, Conto Economico e Nota Integrativa, così come presentato dall'organo amministrativo e corredato dalle relazioni dell'organo di controllo e del revisore legale, ove presenti.", style='ListNumber')
         
         # Secondo punto - Destinazione risultato
-        p = doc.add_paragraph("SECONDO PUNTO ALL'ORDINE DEL GIORNO")
-        run = p.runs[0]
-        run.font.bold = True
+        doc.add_paragraph("2. Destinazione del risultato d'esercizio", style='SectionHeader')
         
-        doc.add_paragraph("Il Presidente propone all'Assemblea la destinazione del risultato dell'esercizio come segue:")
+        risultato_esercizio_val = data.get('risultato_esercizio_valore', '0.00')
+        risultato_esercizio_tipo = "utile" if float(str(risultato_esercizio_val).replace(',','.')) >= 0 else "perdita"
         
-        for dest in data.get('destinazioni_risultato', []):
-            if dest.strip():
-                doc.add_paragraph(dest.strip(), style='List Bullet')
+        text_proposta_risultato = f"Il Presidente illustra quindi la proposta dell'organo amministrativo circa la destinazione dell'{risultato_esercizio_tipo} d'esercizio, pari a Euro {risultato_esercizio_val}."
+        doc.add_paragraph(text_proposta_risultato, style='BodyText')
         
-        esito = data.get('esito_votazione', 'approvato all\'unanimità')
-        doc.add_paragraph(f"L'Assemblea, con voti {esito}, approva la proposta di destinazione del risultato dell'esercizio.")
+        proposte_destinazione = data.get('destinazioni_risultato', [])
+        if proposte_destinazione:
+            doc.add_paragraph("La proposta prevede di destinare tale risultato come segue:", style='BodyText')
+            for dest in proposte_destinazione:
+                if str(dest).strip():
+                    doc.add_paragraph(f"- {str(dest).strip()};", style='ListBullet')
+        else:
+            doc.add_paragraph("Non vi sono proposte specifiche per la destinazione del risultato.", style='BodyText')
+
+        text_discussione_risultato = f"Dopo breve discussione, il Presidente pone in votazione la proposta di destinazione del risultato d'esercizio. Si procede alla votazione {modalita_voto}."
+        doc.add_paragraph(text_discussione_risultato, style='BodyText')
+        
+        esito_votazione_risultato = data.get('esito_votazione_risultato', 'approvato all\'unanimità')
+        text_delibera_risultato = f"L'Assemblea dei Soci, con voti {esito_votazione_risultato},"
+        doc.add_paragraph(text_delibera_risultato, style='BodyText')
+        doc.add_paragraph("DELIBERA", style='SectionHeader')
+        
+        if proposte_destinazione:
+            for i, dest in enumerate(proposte_destinazione, 1):
+                 doc.add_paragraph(f"{i}. di destinare l'{risultato_esercizio_tipo} d'esercizio come segue: {str(dest).strip()};", style='ListNumber')
+        else: # Esempio se non ci sono proposte specifiche, magari si riporta a nuovo o si copre la perdita
+            if risultato_esercizio_tipo == "utile":
+                doc.add_paragraph(f"1. di riportare a nuovo l'{risultato_esercizio_tipo} d'esercizio pari a Euro {risultato_esercizio_val}.", style='ListNumber')
+            else:
+                doc.add_paragraph(f"1. di coprire la {risultato_esercizio_tipo} d'esercizio pari a Euro {risultato_esercizio_val} mediante [specificare come].", style='ListNumber')
+        
+        # Aggiungere qui la gestione per ALTRI PUNTI ALL'ORDINE DEL GIORNO
+        # Si potrebbe iterare su data.get('altri_punti_odg_discussione_delibere', [])
+        # Ogni elemento potrebbe essere un dizionario con 'titolo_punto', 'testo_discussione', 'testo_delibera'
     
     def _add_closing_section(self, doc, data):
-        """Aggiunge la sezione di chiusura"""
-        doc.add_paragraph()
-        doc.add_paragraph("* * *")
-        doc.add_paragraph()
+        """Aggiunge la sezione di chiusura utilizzando stili definiti."""
+        doc.add_paragraph("CHIUSURA DELL'ASSEMBLEA", style='SectionHeader')
         
-        doc.add_paragraph("Il Presidente constata che l'ordine del giorno è esaurito e che nessuno chiede di prendere la parola.")
+        doc.add_paragraph("Null'altro essendovi da deliberare e nessuno chiedendo ulteriormente la parola, il Presidente dichiara l'ordine del giorno esaurito.", style='BodyText')
         
-        doc.add_paragraph("Viene quindi redatto il presente verbale che, previa lettura, viene approvato all'unanimità e sottoscritto.")
+        doc.add_paragraph("Il presente verbale, composto da [Numero Pagine Verbale] pagine, previa lettura e conferma, viene approvato all'unanimità (o specificare maggioranza/eventuali contrari/astenuti) e sottoscritto dal Presidente e dal Segretario.", style='BodyText')
         
-        ora_fine = data.get('ora_fine', '10:00')
-        doc.add_paragraph(f"L'Assemblea viene dichiarata chiusa alle ore {ora_fine}.")
+        ora_fine = data.get('ora_fine', 'HH:MM') # Placeholder se non fornita
+        doc.add_paragraph(f"L'Assemblea viene quindi dichiarata chiusa alle ore {ora_fine} del giorno {data.get('data_assemblea', date.today()).strftime('%d/%m/%Y')}.", style='BodyText')
+
+        # Aggiunta di Altre Informazioni o Note al documento
+        altre_info_note = data.get('altre_informazioni_note', '')
+        if altre_info_note and altre_info_note.strip():
+            doc.add_paragraph("ALTRE INFORMAZIONI O NOTE", style='SectionHeader')
+            doc.add_paragraph(altre_info_note.strip(), style='BodyText')
         
         # Allegati
-        if data.get('allegati'):
-            doc.add_paragraph()
-            p = doc.add_paragraph("ALLEGATI")
-            run = p.runs[0]
-            run.font.bold = True
-            
-            for allegato in data['allegati']:
-                if allegato.strip():
-                    doc.add_paragraph(allegato.strip(), style='List Bullet')
+        allegati = data.get('allegati', [])
+        if allegati:
+            doc.add_paragraph("ALLEGATI", style='SectionHeader')
+            for i, allegato_desc in enumerate(allegati, 1):
+                if str(allegato_desc).strip():
+                    # Esempio: "Allegato A) Progetto di Bilancio al 31/12/XXXX"
+                    # Si potrebbe avere una struttura più dettagliata per gli allegati in 'data'
+                    doc.add_paragraph(f"{str(allegato_desc).strip()};", style='ListBullet')
     
     def _add_signatures(self, doc, data):
-        """Aggiunge le firme"""
-        doc.add_paragraph()
-        doc.add_paragraph()
+        """Aggiunge le firme utilizzando una tabella formattata."""
+        # Aggiungi spazio prima delle firme
+        doc.add_paragraph().paragraph_format.space_before = Pt(36)
         
-        # Tabella per le firme
-        table = doc.add_table(rows=3, cols=2)
-        table.style = 'Table Grid'
+        table = doc.add_table(rows=2, cols=2)
+        table.autofit = False # Permette di controllare le larghezze delle colonne
+        table.columns[0].width = Inches(3.0)
+        table.columns[1].width = Inches(3.0)
+        table.style = 'TableGrid' # Utilizza lo stile di tabella predefinito o uno personalizzato
+
+        # Rimuovi i bordi della tabella se si preferisce solo testo e linee di firma
+        # from docx.oxml.ns import qn
+        # for row in table.rows:
+        #     for cell in row.cells:
+        #         tcPr = cell._tc.get_or_add_tcPr()
+        #         tcBorders = tcPr.get_or_add_tcBorders()
+        #         for border_name in ['top', 'left', 'bottom', 'right', 'insideH', 'insideV']:
+        #             border_el = tcBorders.find(qn(f'w:{border_name}'))
+        #             if border_el is not None:
+        #                 tcBorders.remove(border_el)
+        #             # Per rimuovere completamente, o impostare 'val' a 'nil' o 'none'
+            
+        # Riga per i ruoli
+        cell_pres_role = table.cell(0, 0)
+        cell_pres_role.text = "IL PRESIDENTE"
+        cell_pres_role.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cell_pres_role.paragraphs[0].runs[0].font.bold = True
+        cell_pres_role.paragraphs[0].runs[0].font.name = 'Times New Roman'
+        cell_pres_role.paragraphs[0].runs[0].font.size = Pt(11)
         
-        # Intestazioni
-        table.cell(0, 0).text = "IL PRESIDENTE"
-        table.cell(0, 1).text = "IL SEGRETARIO"
+        cell_secr_role = table.cell(0, 1)
+        cell_secr_role.text = "IL SEGRETARIO"
+        cell_secr_role.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cell_secr_role.paragraphs[0].runs[0].font.bold = True
+        cell_secr_role.paragraphs[0].runs[0].font.name = 'Times New Roman'
+        cell_secr_role.paragraphs[0].runs[0].font.size = Pt(11)
+
+        # Riga per i nomi (o spazio per firma)
+        # Aggiungi più spazio verticale prima dei nomi/linee di firma
+        # Questo si può fare aggiungendo paragrafi vuoti o modificando lo spazio prima/dopo
+        # dei paragrafi nelle celle, o l'altezza della riga.
         
-        # Nomi
-        presidente = data.get('presidente', '')
-        segretario = data.get('segretario', '')
-        table.cell(1, 0).text = presidente
-        table.cell(1, 1).text = segretario
+        cell_pres_name = table.cell(1, 0)
+        # Aggiungi paragrafi per spaziatura e linea di firma
+        cell_pres_name.add_paragraph().paragraph_format.space_before = Pt(24) # Spazio per la firma
+        p_pres_name = cell_pres_name.add_paragraph(data.get('presidente', '_________________________'))
+        p_pres_name.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_pres_name.runs[0].font.name = 'Times New Roman'
+        p_pres_name.runs[0].font.size = Pt(11)
         
-        # Linee per le firme
-        table.cell(2, 0).text = "_" * 30
-        table.cell(2, 1).text = "_" * 30
-        
-        # Centra la tabella
-        for row in table.rows:
-            for cell in row.cells:
-                for paragraph in cell.paragraphs:
-                    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cell_secr_name = table.cell(1, 1)
+        cell_secr_name.add_paragraph().paragraph_format.space_before = Pt(24) # Spazio per la firma
+        p_secr_name = cell_secr_name.add_paragraph(data.get('segretario', '_________________________'))
+        p_secr_name.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_secr_name.runs[0].font.name = 'Times New Roman'
+        p_secr_name.runs[0].font.size = Pt(11)
+
+        # Allinea l'intera tabella al centro della pagina se necessario
+        # Questo è più complesso e richiede l'accesso a OXML o l'uso di sezioni.
+        # Per ora, il contenuto delle celle è centrato.
 
 
 # Registra il template nel factory

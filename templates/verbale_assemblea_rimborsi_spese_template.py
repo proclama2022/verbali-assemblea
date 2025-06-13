@@ -13,6 +13,7 @@ if src_path not in sys.path:
 
 from document_templates import DocumentTemplate, DocumentTemplateFactory
 from common_data_handler import CommonDataHandler
+from base_verbale_template import BaseVerbaleTemplate
 from docx import Document
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -20,7 +21,7 @@ from docx.enum.style import WD_STYLE_TYPE
 from datetime import date
 import streamlit as st
 
-class VerbaleRimborsiSpeseTemplate(DocumentTemplate):
+class VerbaleRimborsiSpeseTemplate(BaseVerbaleTemplate):
     """Template per Verbale di Assemblea - Riconoscimento rimborsi spese organo amministrativo"""
     
     def get_template_name(self) -> str:
@@ -196,12 +197,11 @@ class VerbaleRimborsiSpeseTemplate(DocumentTemplate):
                 st.info("💡 L'anteprima si aggiorna automaticamente")
         
         if show_preview:
-            with st.expander("📄 Anteprima del Verbale", expanded=True):
-                try:
-                    preview_text = self._generate_preview_text(form_data)
-                    st.text(preview_text)
-                except Exception as e:
-                    st.error(f"Errore nell'anteprima: {e}")
+            try:
+                preview_text = self._generate_preview_text(form_data)
+                st.text(preview_text)
+            except Exception as e:
+                st.error(f"Errore nell'anteprima: {e}")
     
     def _generate_preview_text(self, data: dict) -> str:
         """Genera il testo di anteprima"""
@@ -397,14 +397,38 @@ Gli Amministratori sono autorizzati all'utilizzo dei propri veicoli ai fini azie
             p = doc.add_paragraph("il revisore contabile Dott. […] <oppure il dott. […] in rappresentanza della società di revisione incaricata del controllo contabile>")
         
         # Soci
-        p = doc.add_paragraph("nonché i seguenti soci o loro rappresentanti, [eventualmente così come iscritti a libro soci e] recanti complessivamente una quota pari a nominali euro […] pari al […]% del Capitale Sociale:")
-        
         soci = data.get('soci', [])
+        totale_quote_euro = 0.0
+        totale_quote_perc = 0.0
+
+        for socio in soci:
+            if isinstance(socio, dict):
+                try:
+                    quota_euro_str = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
+                    totale_quote_euro += float(quota_euro_str)
+                except ValueError:
+                    pass  # Ignora valori non numerici
+                try:
+                    quota_perc_str = str(socio.get('quota_percentuale', '0')).replace('.', '').replace(',', '.')
+                    totale_quote_perc += float(quota_perc_str)
+                except ValueError:
+                    pass  # Ignora valori non numerici
+
+        # Formattazione per l'italiano
+        totale_quote_euro_formatted = f"{totale_quote_euro:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+        totale_quote_perc_formatted = f"{totale_quote_perc:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
+        p = doc.add_paragraph(f"nonché i seguenti soci o loro rappresentanti, [eventualmente così come iscritti a libro soci e] recanti complessivamente una quota pari a nominali euro {totale_quote_euro_formatted} pari al {totale_quote_perc_formatted}% del Capitale Sociale:")
+        
         for socio in soci:
             if isinstance(socio, dict):
                 nome = socio.get('nome', '[Nome Socio]')
-                quota = socio.get('quota', '[Quota]')
-                percentuale = socio.get('percentuale', '[%]')
+                quota_value = socio.get('quota_euro', '')
+                percentuale_value = socio.get('quota_percentuale', '')
+                
+                # Gestione robusta dei valori nulli o vuoti
+                quota = '[Quota]' if quota_value is None or str(quota_value).strip() == '' else str(quota_value).strip()
+                percentuale = '[%]' if percentuale_value is None or str(percentuale_value).strip() == '' else str(percentuale_value).strip()
                 p = doc.add_paragraph(f"il Sig. {nome} socio [oppure delegato del socio Sig. […]] recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale")
         
         p = doc.add_paragraph("2 - che gli intervenuti sono legittimati alla presente assemblea;")
@@ -518,24 +542,12 @@ Gli Amministratori sono autorizzati all'utilizzo dei propri veicoli ai fini azie
     
     def _add_signatures(self, doc, data):
         """Aggiunge firme"""
-        doc.add_paragraph()
-        doc.add_paragraph()
-        
-        table = doc.add_table(rows=2, cols=2)
-        table.style = 'Table Grid'
-        table.autofit = False
-        
-        hdr_cells = table.rows[0].cells
-        hdr_cells[0].text = 'Il Presidente'
-        hdr_cells[1].text = 'Il Segretario'
-        
-        row_cells = table.rows[1].cells
-        row_cells[0].text = data.get('presidente', '[PRESIDENTE]')
-        row_cells[1].text = data.get('segretario', '[SEGRETARIO]')
+        # Usa la tabella di firme standardizzata
+        table = self._add_signature_table(doc, data)
         
         for row in table.rows:
             for cell in row.cells:
                 cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
 
 # Registra il template
-DocumentTemplateFactory.register_template('verbale_assemblea_rimborsi_spese', VerbaleRimborsiSpeseTemplate) 
+DocumentTemplateFactory.register_template('verbale_assemblea_rimborsi_spese', VerbaleRimborsiSpeseTemplate)

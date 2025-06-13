@@ -13,14 +13,15 @@ if src_path not in sys.path:
 
 from document_templates import DocumentTemplate, DocumentTemplateFactory
 from common_data_handler import CommonDataHandler
+from base_verbale_template import BaseVerbaleTemplate
 from docx import Document
 from docx.shared import Inches, Pt
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.enum.style import WD_STYLE_TYPE
 from datetime import date
 import streamlit as st
 
-class VerbaleRevocaNominaTemplate(DocumentTemplate):
+class VerbaleRevocaNominaTemplate(BaseVerbaleTemplate):
     """Template per Verbale di Assemblea - Revoca dell'Amministratore Unico e nomina di nuovo Organo Amministrativo"""
     
     def get_template_name(self) -> str:
@@ -172,37 +173,147 @@ class VerbaleRevocaNominaTemplate(DocumentTemplate):
                 st.info("💡 L'anteprima si aggiorna automaticamente")
         
         if show_preview:
-            with st.expander("📄 Anteprima del Verbale", expanded=True):
-                try:
-                    preview_text = self._generate_preview_text(form_data)
-                    st.text(preview_text)
-                except Exception as e:
-                    st.error(f"Errore nell'anteprima: {e}")
+            try:
+                preview_text = self._generate_preview_text(form_data)
+                st.text(preview_text)
+            except Exception as e:
+                st.error(f"Errore nell'anteprima: {e}")
     
     def _generate_preview_text(self, data: dict) -> str:
-        """Genera il testo di anteprima"""
+        """Genera il testo di anteprima completo"""
         try:
-            # Header
-            header = f"""{data.get('denominazione', '[Denominazione]')}
+            preview = ""
+            
+            # Header azienda
+            preview += f"""{data.get('denominazione', '[Denominazione]')}
 Sede in {data.get('sede_legale', '[Sede]')}
 Capitale sociale Euro {data.get('capitale_sociale', '[Capitale]')} i.v.
 Codice fiscale: {data.get('codice_fiscale', '[CF]')}
 
-Verbale di assemblea dei soci
+"""
+            
+            # Titolo verbale
+            preview += f"""Verbale di assemblea dei soci
 del {data.get('data_assemblea', '[Data]').strftime('%d/%m/%Y') if hasattr(data.get('data_assemblea'), 'strftime') else '[Data]'}
 
-Ordine del giorno
-Revoca dell'Amministratore Unico e nomina di nuovo Organo Amministrativo."""
+"""
             
-            # Resto del verbale... (truncated per brevità)
-            return header + "\n\n[... resto del verbale ...]"
+            # Ordine del giorno
+            preview += "Ordine del giorno\n"
+            preview += "Revoca dell'Amministratore Unico e nomina di nuovo Organo Amministrativo.\n\n"
+            
+            # Apertura assemblea
+            preview += f"""Il giorno {data.get('data_assemblea', '[Data]').strftime('%d/%m/%Y') if hasattr(data.get('data_assemblea'), 'strftime') else '[Data]'} alle ore {data.get('ora_assemblea', '[Ora]')}, presso {data.get('luogo_assemblea', '[Luogo]')}, si è riunita l'assemblea dei soci della società {data.get('denominazione', '[Denominazione]')}.
+
+"""
+            
+            # Partecipanti
+            preview += "Sono presenti:\n"
+            soci = data.get('soci', [])
+            total_quota_euro = 0.0
+            total_quota_percentuale = 0.0
+
+            if soci:
+                for socio in soci:
+                    if isinstance(socio, dict):
+                        nome = socio.get('nome', '[Nome Socio]')
+                        quota_euro_raw = socio.get('quota_euro', '')
+                        quota_percentuale_raw = socio.get('quota_percentuale', '')
+
+                        try:
+                            quota_euro_str = str(quota_euro_raw).replace('.', '').replace(',', '.')
+                            total_quota_euro += float(quota_euro_str)
+                        except ValueError:
+                            pass
+                        try:
+                            quota_percentuale_str = str(quota_percentuale_raw).replace('.', '').replace(',', '.')
+                            total_quota_percentuale += float(quota_percentuale_str)
+                        except ValueError:
+                            pass
+
+                        quota = '[Quota]' if not quota_euro_raw or str(quota_euro_raw).strip() == '' else str(quota_euro_raw).strip()
+                        percentuale = '[%]' if not quota_percentuale_raw or str(quota_percentuale_raw).strip() == '' else str(quota_percentuale_raw).strip()
+
+                        preview += f"- {nome}, titolare di quote per Euro {quota} pari al {percentuale}%\n"
+
+                formatted_total_quota_euro = f"{total_quota_euro:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                formatted_total_quota_percentuale = f"{total_quota_percentuale:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                preview += f"Complessivamente, i soci presenti rappresentano una quota pari a nominali euro {formatted_total_quota_euro} pari al {formatted_total_quota_percentuale}% del Capitale Sociale.\n"
+            
+            preview += f"\nPresente altresì {data.get('rappresentante_legale', '[Rappresentante]')} in qualità di Amministratore Unico.\n\n"
+            
+            # Costituzione assemblea
+            preview += "L'assemblea risulta regolarmente costituita e può validamente deliberare.\n\n"
+            
+            # Discussione revoca
+            preview += "PRIMO PUNTO ALL'ORDINE DEL GIORNO\n"
+            preview += "Revoca dell'Amministratore Unico\n\n"
+            
+            amm_revocato = data.get('amministratore_revocato', {})
+            if amm_revocato.get('nome'):
+                preview += f"Il Presidente espone che l'Amministratore Unico {amm_revocato.get('nome', '')} "
+                if amm_revocato.get('inadempimenti'):
+                    preview += f"ha commesso i seguenti inadempimenti: {amm_revocato.get('inadempimenti', '')}.\n\n"
+                else:
+                    preview += "non ha più i requisiti per ricoprire la carica.\n\n"
+            
+            preview += "L'assemblea, all'unanimità, delibera di revocare l'Amministratore Unico dalla carica.\n\n"
+            
+            # Discussione nomina
+            preview += "SECONDO PUNTO ALL'ORDINE DEL GIORNO\n"
+            preview += "Nomina del nuovo Organo Amministrativo\n\n"
+            
+            nuovo_amm = data.get('nuovo_amministratore', {})
+            if nuovo_amm.get('nome'):
+                preview += f"L'assemblea delibera di nominare quale nuovo Amministratore Unico il {nuovo_amm.get('qualifica', 'Sig.')} {nuovo_amm.get('nome', '')}.\n\n"
+                
+                if nuovo_amm.get('durata_incarico'):
+                    preview += f"La durata dell'incarico è: {nuovo_amm.get('durata_incarico', '')}.\n"
+                
+                if nuovo_amm.get('compenso'):
+                    preview += f"Il compenso annuo lordo è stabilito in Euro {nuovo_amm.get('compenso', '')}.\n\n"
+            
+            # Chiusura
+            ora_chiusura = data.get('ora_chiusura', '[Ora chiusura]')
+            preview += f"Non essendovi altro da deliberare, l'assemblea viene sciolta alle ore {ora_chiusura}.\n\n"
+            
+            # Note aggiuntive
+            if data.get('note_aggiuntive'):
+                preview += f"Note aggiuntive:\n{data.get('note_aggiuntive', '')}\n\n"
+            
+            # Firme
+            preview += "Il Presidente\n"
+            preview += f"{data.get('rappresentante_legale', '[Rappresentante]')}\n\n"
+            preview += "Il Segretario\n"
+            preview += f"{data.get('segretario', '[Segretario]')}"
+            
+            return preview
             
         except Exception as e:
-            return f"Errore: {str(e)}"
+            return f"Errore nella generazione dell'anteprima: {str(e)}"
     
     def generate_document(self, data: dict) -> Document:
-        """Genera il documento Word"""
-        doc = Document()
+        """Genera il documento Word del verbale"""
+        import os
+        
+        # Utilizza il template .docx esistente per mantenere la formattazione
+        template_path = os.path.join(os.path.dirname(__file__), 'template.docx')
+        
+        try:
+            if os.path.exists(template_path):
+                doc = Document(template_path)
+                # Rimuovi il contenuto esistente del template mantenendo gli stili
+                for paragraph in doc.paragraphs[:]:
+                    p = paragraph._element
+                    p.getparent().remove(p)
+            else:
+                doc = Document()
+                # Setup stili solo se non usiamo template
+                self._setup_document_styles(doc)
+        except Exception as e:
+            # Fallback a documento vuoto se il template non può essere caricato
+            doc = Document()
+            self._setup_document_styles(doc)
         
         # Setup stili
         self._setup_document_styles(doc)
@@ -225,285 +336,492 @@ Revoca dell'Amministratore Unico e nomina di nuovo Organo Amministrativo."""
         return doc
     
     def _setup_document_styles(self, doc):
-        """Imposta gli stili del documento"""
+        """Definisce e registra gli stili del documento."""
         styles = doc.styles
+        try:
+            norm_style = styles['Normal']
+        except KeyError:
+            norm_style = styles.add_style('Normal', WD_STYLE_TYPE.PARAGRAPH)
         
-        if 'Titolo Principale' not in [s.name for s in styles]:
-            title_style = styles.add_style('Titolo Principale', WD_STYLE_TYPE.PARAGRAPH)
-            title_style.font.name = 'Times New Roman'
-            title_style.font.size = Pt(14)
-            title_style.font.bold = True
-            title_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        
-        normal_style = styles['Normal']
-        normal_style.font.name = 'Times New Roman'
-        normal_style.font.size = Pt(12)
-        normal_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        normal_style.paragraph_format.line_spacing = 1.15
+        font = norm_style.font
+        font.name = 'Times New Roman'
+        font.size = Pt(11)
+        norm_style.paragraph_format.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
+        norm_style.paragraph_format.line_spacing = 1.15
+        norm_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT # Default, sovrascritto se necessario
+        norm_style.paragraph_format.space_before = Pt(0)
+        norm_style.paragraph_format.space_after = Pt(0)
+
+        try:
+            comp_header_style = styles['CompanyHeader']
+        except KeyError:
+            comp_header_style = styles.add_style('CompanyHeader', WD_STYLE_TYPE.PARAGRAPH)
+        comp_header_style.base_style = norm_style
+        comp_header_style.font.size = Pt(10) # Specifico per indirizzo, C.F., etc.
+        comp_header_style.font.bold = False
+        comp_header_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        # space_after per CompanyHeader è gestito in _add_company_header
+
+        try:
+            verb_title_style = styles['VerbaleTitle']
+        except KeyError:
+            verb_title_style = styles.add_style('VerbaleTitle', WD_STYLE_TYPE.PARAGRAPH)
+        verb_title_style.base_style = norm_style
+        verb_title_style.font.size = Pt(16) # Aumentato
+        verb_title_style.font.bold = True
+        verb_title_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER # Centrato
+        verb_title_style.paragraph_format.space_before = Pt(12)
+        verb_title_style.paragraph_format.space_after = Pt(6)
+
+        try:
+            verb_subtitle_style = styles['VerbaleSubtitle']
+        except KeyError:
+            verb_subtitle_style = styles.add_style('VerbaleSubtitle', WD_STYLE_TYPE.PARAGRAPH)
+        verb_subtitle_style.base_style = norm_style
+        verb_subtitle_style.font.size = Pt(12) # Aumentato
+        verb_subtitle_style.font.bold = False
+        verb_subtitle_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER # Centrato
+        verb_subtitle_style.paragraph_format.space_after = Pt(18) # Più spazio prima del corpo
+
+        try:
+            section_header_style = styles['SectionHeader']
+        except KeyError:
+            section_header_style = styles.add_style('SectionHeader', WD_STYLE_TYPE.PARAGRAPH)
+        section_header_style.base_style = norm_style
+        section_header_style.font.size = Pt(12) # Aumentato
+        section_header_style.font.bold = True
+        section_header_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        section_header_style.paragraph_format.space_before = Pt(12)
+        section_header_style.paragraph_format.space_after = Pt(6)
+
+        try:
+            body_text_style = styles['BodyText']
+        except KeyError:
+            body_text_style = styles.add_style('BodyText', WD_STYLE_TYPE.PARAGRAPH)
+        body_text_style.base_style = norm_style
+        body_text_style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY # Giustificato
+        body_text_style.paragraph_format.space_after = Pt(6)
+
+        try:
+            list_bullet_style = styles['CustomListBullet']
+        except KeyError:
+            list_bullet_style = styles.add_style('CustomListBullet', WD_STYLE_TYPE.PARAGRAPH)
+        list_bullet_style.base_style = body_text_style # Eredita da BodyText (quindi giustificato)
+        # list_bullet_style.paragraph_format.left_indent = Inches(0.5) # Indentazione gestita al momento dell'aggiunta
+
+        try:
+            list_number_style = styles['CustomListNumber']
+        except KeyError:
+            list_number_style = styles.add_style('CustomListNumber', WD_STYLE_TYPE.PARAGRAPH)
+        list_number_style.base_style = body_text_style # Eredita da BodyText (quindi giustificato)
+        # list_number_style.paragraph_format.left_indent = Inches(0.5) # Indentazione gestita al momento dell'aggiunta
     
     def _add_company_header(self, doc, data):
-        """Aggiunge header azienda"""
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.add_run(data.get('denominazione', '[DENOMINAZIONE]'))
-        run.font.name = 'Times New Roman'
-        run.font.size = Pt(14)
-        run.font.bold = True
+        """Aggiunge header azienda utilizzando stili"""
+        # Denominazione (più grande e grassetto)
+        p_denominazione = doc.add_paragraph(style='CompanyHeader')
+        run_denominazione = p_denominazione.add_run(data.get('denominazione', '[DENOMINAZIONE SOCIETA\']').upper())
+        run_denominazione.font.size = Pt(11) # Leggermente più grande del resto dell'header
+        run_denominazione.font.bold = True
+        p_denominazione.paragraph_format.space_after = Pt(0) # Nessuno spazio dopo la denominazione
+
+        # Altre informazioni dell'header (dimensione standard, non grassetto)
+        sede_text = f"Sede in {data.get('sede_legale', '[Indirizzo Sede Legale]')}"
+        doc.add_paragraph(sede_text, style='CompanyHeader').paragraph_format.space_after = Pt(0)
         
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.add_run(f"Sede in {data.get('sede_legale', '[SEDE]')}")
-        run.font.name = 'Times New Roman'
-        run.font.size = Pt(12)
-        
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.add_run(f"Capitale sociale Euro {data.get('capitale_sociale', '[CAPITALE]')} i.v.")
-        run.font.name = 'Times New Roman'
-        run.font.size = Pt(12)
-        
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.add_run(f"Codice fiscale: {data.get('codice_fiscale', '[CF]')}")
-        run.font.name = 'Times New Roman'
-        run.font.size = Pt(12)
-        
-        doc.add_paragraph()
-    
+        capitale_text = f"Capitale sociale Euro {data.get('capitale_sociale', '[Importo Capitale Sociale]')} i.v."
+        doc.add_paragraph(capitale_text, style='CompanyHeader').paragraph_format.space_after = Pt(0)
+
+        codice_fiscale_text = f"Codice fiscale: {data.get('codice_fiscale', '[Partita IVA/Codice Fiscale]')}"
+        p_cf = doc.add_paragraph(codice_fiscale_text, style='CompanyHeader')
+        p_cf.paragraph_format.space_after = Pt(12) # Spazio dopo l'intero blocco header
+
     def _add_verbale_title(self, doc, data):
-        """Aggiunge titolo verbale"""
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.add_run("Verbale di assemblea dei soci")
-        run.font.name = 'Times New Roman'
-        run.font.size = Pt(14)
-        run.font.bold = True
+        """Aggiunge il titolo del verbale e la data"""
+        doc.add_paragraph("VERBALE DI ASSEMBLEA DEI SOCI", style='VerbaleTitle')
         
-        data_assemblea = data.get('data_assemblea')
-        if hasattr(data_assemblea, 'strftime'):
-            data_str = data_assemblea.strftime('%d/%m/%Y')
-        else:
-            data_str = '[DATA]'
+        data_assemblea_obj = data.get('data_assemblea', date.today())
+        if isinstance(data_assemblea_obj, str):
+            try:
+                # Prova a convertire la stringa in oggetto data, se necessario
+                data_assemblea_obj = datetime.strptime(data_assemblea_obj, '%Y-%m-%d').date()
+            except ValueError:
+                data_assemblea_str = "[DATA ASSEMBLEA]" # Fallback se la stringa non è parsabile
         
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.add_run(f"del {data_str}")
-        run.font.name = 'Times New Roman'
-        run.font.size = Pt(12)
-        
-        doc.add_paragraph()
+        if isinstance(data_assemblea_obj, date):
+            data_assemblea_str = data_assemblea_obj.strftime('%d/%m/%Y')
+        else: # Se ancora non è una data (es. None o altro tipo)
+            data_assemblea_str = "[DATA ASSEMBLEA]"
+            
+        doc.add_paragraph(f"del {data_assemblea_str}", style='VerbaleSubtitle')
     
     def _add_opening_section(self, doc, data):
-        """Aggiunge sezione apertura"""
-        data_assemblea = data.get('data_assemblea')
-        ora_assemblea = data.get('ora_assemblea')
+        """Aggiunge la sezione di apertura del verbale."""
+        luogo_assemblea = data.get('luogo_assemblea', '[LUOGO ASSEMBLEA]')
+        data_assemblea_obj = data.get('data_assemblea', date.today())
+        if isinstance(data_assemblea_obj, str):
+            try:
+                data_assemblea_obj = datetime.strptime(data_assemblea_obj, '%Y-%m-%d').date()
+            except ValueError:
+                data_assemblea_str = "[DATA ASSEMBLEA]"
         
-        if hasattr(data_assemblea, 'strftime'):
-            data_str = data_assemblea.strftime('%d/%m/%Y')
+        if isinstance(data_assemblea_obj, date):
+            data_assemblea_str = data_assemblea_obj.strftime('%d/%m/%Y')
         else:
-            data_str = '[DATA]'
+            data_assemblea_str = "[DATA ASSEMBLEA]"
         
-        if hasattr(ora_assemblea, 'strftime'):
-            ora_str = ora_assemblea.strftime('%H:%M')
-        else:
-            ora_str = '[ORA]'
+        ora_assemblea = data.get('ora_assemblea', '[ORA ASSEMBLEA]')
+
+        opening_text = f"Oggi {data_assemblea_str} alle ore {ora_assemblea} presso {luogo_assemblea}, " \
+                       f"si è tenuta l'assemblea generale dei soci, per discutere e deliberare sul seguente:"
+        p_opening = doc.add_paragraph(opening_text, style='BodyText')
+        p_opening.paragraph_format.space_after = Pt(12) # Spazio dopo il paragrafo introduttivo
+
+        # ORDINE DEL GIORNO
+        doc.add_paragraph("ORDINE DEL GIORNO", style='SectionHeader') # SectionHeader ha già il suo spacing
+
+        punti_odg = data.get('punti_ordine_del_giorno', [])
+        if not punti_odg: 
+            punti_odg = [
+                "Approvazione del Bilancio al [DATA BILANCIO] e dei documenti correlati",
+                "Delibere consequenziali"
+            ]
         
-        text = f"Oggi {data_str} alle ore {ora_str} presso la sede sociale {data.get('sede_legale', '[SEDE]')}, si è tenuta l'assemblea generale dei soci, per discutere e deliberare sul seguente:"
-        
-        p = doc.add_paragraph(text)
-        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        
-        doc.add_paragraph()
-        p = doc.add_paragraph()
-        run = p.add_run("Ordine del giorno")
-        run.font.bold = True
-        
-        p = doc.add_paragraph("Revoca dell'Amministratore Unico e nomina di nuovo Organo Amministrativo.")
+        for i, punto in enumerate(punti_odg):
+            # Usiamo CustomListNumber per i punti dell'ODG
+            # La numerazione effettiva viene dal testo, lo stile applica solo la formattazione (indent, etc)
+            p_odg_item = doc.add_paragraph(f"{i+1}. {punto}", style='CustomListNumber')
+            p_odg_item.paragraph_format.left_indent = Inches(0.5)
+            p_odg_item.paragraph_format.first_line_indent = Inches(-0.25) # Hanging indent per il numero
+            if i == len(punti_odg) -1: # Ultimo elemento
+                 p_odg_item.paragraph_format.space_after = Pt(12) # Spazio dopo l'intero ODG
+            else:
+                 p_odg_item.paragraph_format.space_after = Pt(2) # Spazio ridotto tra gli item
     
     def _add_participants_section(self, doc, data):
-        """Aggiunge sezione partecipanti"""
-        doc.add_paragraph()
+        """Aggiunge la sezione relativa ai partecipanti."""
+        presidente = data.get('presidente_assemblea', '[PRESIDENTE ASSEMBLEA]')
+        statuto_art_presidenza = data.get('statuto_art_presidenza', '[ART. STATUTO PRESIDENZA]')
         
-        ruolo_presidente = data.get('ruolo_presidente', 'Amministratore Unico')
-        presidente = data.get('presidente', '[PRESIDENTE]')
+        text_presidenza = f"Assume la presidenza ai sensi dell'art. {statuto_art_presidenza} " \
+                          f"dello statuto sociale il Sig. {presidente}, " \
+                          f"Amministratore Unico, il quale dichiara e constata:"
+        p_presidenza = doc.add_paragraph(text_presidenza, style='BodyText')
+        p_presidenza.paragraph_format.space_after = Pt(6)
+
+        constatazioni_iniziali = [
+            f"che (come indicato anche nell'avviso di convocazione ed in conformità alle previsioni dell'art. {data.get('statuto_art_convocazione', '[ART. STATUTO CONVOCAZIONE]')} dello statuto sociale) l'intervento all'assemblea può avvenire anche in {data.get('modalita_intervento', 'audioconferenza')}",
+            "che sono presenti/partecipano all'assemblea:"
+        ]
+        for i, const_text in enumerate(constatazioni_iniziali):
+            p_const = doc.add_paragraph(f"{i+1}- {const_text}", style='CustomListNumber') # Usiamo lo stile per l'indentazione
+            p_const.paragraph_format.left_indent = Inches(0.5)
+            p_const.paragraph_format.first_line_indent = Inches(-0.25)
+            p_const.paragraph_format.space_after = Pt(2)
         
-        text = f"Assume la presidenza ai sensi dell'art. […] dello statuto sociale il Sig. {presidente} {ruolo_presidente}, il quale dichiara e constata:"
-        
-        p = doc.add_paragraph(text)
-        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        
-        p = doc.add_paragraph("1 - che (come indicato anche nell'avviso di convocazione ed in conformità alle previsioni dell'art. […] dello statuto sociale) l'intervento all'assemblea può avvenire anche in audioconferenza")
-        
-        p = doc.add_paragraph("2 - che sono presenti/partecipano all'assemblea:")
-        p = doc.add_paragraph(f"l'{ruolo_presidente} nella persona del suddetto Presidente Sig. {presidente}")
-        
-        # Collegio sindacale se presente
-        if data.get('include_collegio_sindacale', False):
-            p = doc.add_paragraph("[eventualmente")
-            p = doc.add_paragraph("per il Collegio Sindacale")
-            p = doc.add_paragraph("il Dott. […]")
-            p = doc.add_paragraph("il Dott. […]")
-            p = doc.add_paragraph("il Dott. […]]")
-        
-        # Revisore se presente
-        if data.get('include_revisore', False):
-            p = doc.add_paragraph("[eventualmente, se invitato")
-            p = doc.add_paragraph("il revisore contabile Dott. […]]")
-        
-        # Soci
-        p = doc.add_paragraph("nonché i seguenti soci o loro rappresentanti, [eventualmente così come iscritti a libro soci e] recanti complessivamente una quota pari a nominali euro […] pari al […]% del Capitale Sociale:")
-        
-        soci = data.get('soci', [])
-        for socio in soci:
-            if isinstance(socio, dict):
-                nome = socio.get('nome', '[Nome Socio]')
-                quota = socio.get('quota', '[Quota]')
-                percentuale = socio.get('percentuale', '[%]')
-                p = doc.add_paragraph(f"il Sig {nome} socio recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale")
-        
-        p = doc.add_paragraph("2 - che gli intervenuti sono legittimati alla presente assemblea;")
-        p = doc.add_paragraph("3 - che tutti gli intervenuti si dichiarano edotti sugli argomenti posti all'ordine del giorno.")
+        # Amministratore Unico come partecipante
+        p_au = doc.add_paragraph(f"Amministratore Unico nella persona del suddetto Presidente Sig. {presidente}", style='CustomListBullet')
+        p_au.paragraph_format.left_indent = Inches(0.75) # Indentazione maggiore per distinguerlo
+        p_au.paragraph_format.first_line_indent = Inches(-0.25)
+        p_au.paragraph_format.space_after = Pt(2)
+
+        soci_presenti = data.get('soci_presenti', [])
+        if not soci_presenti:
+            soci_presenti = [
+                {'nome': '[NOME SOCIO 1]', 'quota_euro': '[QUOTA SOCIO 1]', 'quota_percentuale': '[% SOCIO 1]'},
+                {'nome': '[NOME SOCIO 2]', 'quota_euro': '[QUOTA SOCIO 2]', 'quota_percentuale': '[% SOCIO 2]'}
+            ]
+
+        if soci_presenti:
+            p_intro_soci = doc.add_paragraph("nonché i seguenti soci o loro rappresentanti:", style='BodyText')
+            p_intro_soci.paragraph_format.left_indent = Inches(0.5) # Allineato con le constatazioni
+            p_intro_soci.paragraph_format.space_after = Pt(2)
+
+            for socio in soci_presenti:
+                nome = socio.get('nome', '[NOME SOCIO]')
+                quota_value = socio.get('quota_euro', '')
+                percentuale_value = socio.get('quota_percentuale', '')
+                
+                # Gestione robusta dei valori nulli o vuoti
+                quota = '[QUOTA]' if quota_value is None or str(quota_value).strip() == '' else str(quota_value).strip()
+                percentuale = '[%]' if percentuale_value is None or str(percentuale_value).strip() == '' else str(percentuale_value).strip()
+                
+                socio_text = f"il Sig. {nome} socio recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale"
+                p_socio = doc.add_paragraph(socio_text, style='CustomListBullet')
+                p_socio.paragraph_format.left_indent = Inches(0.75) # Stessa indentazione dell'AU
+                p_socio.paragraph_format.first_line_indent = Inches(-0.25)
+                p_socio.paragraph_format.space_after = Pt(2)
+
+        # Ulteriori constatazioni (dopo l'elenco dei soci)
+        ulteriori_constatazioni = [
+            "che gli intervenuti sono legittimati alla presente assemblea;",
+            "che tutti gli intervenuti si dichiarano edotti sugli argomenti posti all'ordine del giorno."
+        ]
+        # Continua la numerazione dalle constatazioni iniziali
+        start_index_ulteriori = len(constatazioni_iniziali) + 1 
+        for i, const_text in enumerate(ulteriori_constatazioni, start=start_index_ulteriori):
+            p_uconst = doc.add_paragraph(f"{i}- {const_text}", style='CustomListNumber')
+            p_uconst.paragraph_format.left_indent = Inches(0.5)
+            p_uconst.paragraph_format.first_line_indent = Inches(-0.25)
+            p_uconst.paragraph_format.space_after = Pt(2)
+
+        segretario = data.get('segretario_assemblea', '[SEGRETARIO ASSEMBLEA]')
+        p_segretario = doc.add_paragraph(f"I presenti all'unanimità chiamano a fungere da segretario il signor {segretario}, che accetta l'incarico.", style='BodyText')
+        p_segretario.paragraph_format.space_after = Pt(12) # Spazio dopo questa sezione
     
     def _add_preliminary_statements(self, doc, data):
-        """Aggiunge dichiarazioni preliminari"""
-        doc.add_paragraph()
+        """Aggiunge le dichiarazioni preliminari."""
+        # presidente = data.get('presidente_assemblea', '[PRESIDENTE ASSEMBLEA]') # Non usato direttamente qui, ma nel contesto
+        capitale_sociale_totale = data.get('capitale_sociale_totale', '[CAPITALE SOCIALE TOTALE]')
+        percentuale_presente = data.get('percentuale_capitale_presente', '[% CAPITALE PRESENTE]')
+        numero_soci_presenti = data.get('numero_soci_presenti', '[NUMERO SOCI PRESENTI]')
+        numero_soci_totali = data.get('numero_soci_totali', '[NUMERO SOCI TOTALI]')
+
+        text1 = f"Il Presidente identifica tutti i partecipanti e si accerta che ai soggetti collegati " \
+                f"mediante mezzi di telecomunicazione sia consentito seguire la discussione, trasmettere " \
+                f"e ricevere documenti, intervenire in tempo reale, con conferma da parte di ciascun partecipante."
+        p1 = doc.add_paragraph(text1, style='BodyText')
+        p1.paragraph_format.space_after = Pt(6)
+
+        text2_base = f"Il Presidente constata e fa constatare che l'assemblea risulta regolarmente convocata " \
+                     f"e debitamente costituita ai sensi di legge e di statuto, essendo presenti tanti soci " \
+                     f"rappresentanti il {percentuale_presente}% del capitale sociale pari ad Euro {capitale_sociale_totale}"
         
-        segretario = data.get('segretario', '[SEGRETARIO]')
-        p = doc.add_paragraph(f"I presenti all'unanimità chiamano a fungere da segretario il signor {segretario}, che accetta l'incarico.")
+        # Aggiungere dettagli sul numero di soci se disponibili e significativi
+        if numero_soci_presenti and numero_soci_totali and numero_soci_presenti != '[NUMERO SOCI PRESENTI]': # Controlla anche il placeholder
+            text2 = f"{text2_base}, e quindi atta a deliberare sugli argomenti posti all'ordine del giorno (presenti n. {numero_soci_presenti} soci su n. {numero_soci_totali} soci)."
+        else:
+            text2 = f"{text2_base}, e quindi atta a deliberare sugli argomenti posti all'ordine del giorno."
         
-        p = doc.add_paragraph("Il Presidente identifica tutti i partecipanti e si accerta che ai soggetti collegati mediante mezzi di telecomunicazione sia consentito seguire la discussione, trasmettere e ricevere documenti, intervenire in tempo reale, con conferma da parte di ciascun partecipante.")
-        
-        # Traduzione se necessaria
-        if data.get('include_traduzione', False):
-            persona_traduzione = data.get('persona_traduzione', '[Nome]')
-            lingua = data.get('lingua_traduzione', 'inglese').lower()
-            p = doc.add_paragraph(f"In particolare, preso atto che il Sig. {persona_traduzione} non conosce la lingua italiana ma dichiara di conoscere la lingua {lingua}, il Presidente dichiara che provvederà a tradurre dall'italiano al {lingua} (e viceversa) gli interventi dei partecipanti alla discussione nonché a tradurre dall'italiano al {lingua} il verbale che sarà redatto al termine della riunione.")
-        
-        p = doc.add_paragraph("Il Presidente constata e fa constatare che l'assemblea risulta regolarmente convocata [oppure totalitaria] e deve ritenersi valida ed atta a deliberare sul citato ordine del giorno.")
-        
-        p = doc.add_paragraph("Si passa quindi allo svolgimento dell'ordine del giorno.")
-        
-        # Separatore
-        p = doc.add_paragraph("*     *     *")
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p2 = doc.add_paragraph(text2, style='BodyText')
+        p2.paragraph_format.space_after = Pt(6)
+
+        p3 = doc.add_paragraph(f"Il Presidente dichiara quindi l'assemblea validamente costituita e atta a deliberare.", style='BodyText')
+        p3.paragraph_format.space_after = Pt(12) # Spazio maggiore dopo questa sezione
     
     def _add_revoca_discussion(self, doc, data):
-        """Aggiunge discussione revoca"""
-        doc.add_paragraph()
+        """Aggiunge la discussione sulla revoca."""
+        # Il numero "1." è già parte del titolo ODG, quindi qui usiamo solo il testo del punto
+        # Se questo è un sotto-punto specifico, la numerazione dovrebbe rifletterlo.
+        # Assumiamo che sia il primo punto principale della discussione.
+        doc.add_paragraph("REVOCA DELL'AMMINISTRATORE UNICO", style='SectionHeader')
+
+        # presidente = data.get('presidente_assemblea', '[PRESIDENTE ASSEMBLEA]') # Non usato direttamente
+        amministratore_da_revocare = data.get('amministratore_da_revocare', '[NOME AMMINISTRATORE DA REVOCARE]')
+        motivazione_revoca = data.get('motivazione_revoca', '[MOTIVAZIONE DELLA REVOCA]')
+
+        text1 = f"Il Presidente illustra ai presenti la necessità di procedere alla revoca " \
+                f"dell'attuale Amministratore Unico, Sig. {amministratore_da_revocare}, {motivazione_revoca}."
+        p1 = doc.add_paragraph(text1, style='BodyText')
+        p1.paragraph_format.space_after = Pt(6)
+
+        # Dati per la delibera (da rendere dinamici o configurabili)
+        percentuale_voti_favorevoli_revoca = data.get('percentuale_voti_favorevoli_revoca', '[PERCENTUALE VOTI FAVOREVOLI]')
+        numero_voti_favorevoli_revoca = data.get('numero_voti_favorevoli_revoca', '[NUMERO VOTI FAVOREVOLI]')
+        numero_voti_totali_revoca = data.get('numero_voti_totali_revoca', '[NUMERO VOTI TOTALI]')
+
+        text2 = f"Dopo ampia ed esauriente discussione, l'assemblea, udita la relazione del Presidente, " \
+                f"con il voto favorevole di {percentuale_voti_favorevoli_revoca}% del capitale sociale " \
+                f"avente diritto al voto, pari a n. {numero_voti_favorevoli_revoca} voti su n. {numero_voti_totali_revoca} voti totali,"
+        p2 = doc.add_paragraph(text2, style='BodyText')
+        p2.paragraph_format.space_after = Pt(3) # Spazio minore prima di DELIBERA
         
-        admin_revocato = data.get('amministratore_revocato', {})
-        nome_revocato = admin_revocato.get('nome', '[Nome]')
-        motivo_revoca = data.get('motivo_revoca', 'Impedimento a svolgere le funzioni')
+        p_delibera_intro = doc.add_paragraph(style='BodyText') # Paragrafo per DELIBERA
+        p_delibera_intro.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run_delibera = p_delibera_intro.add_run("DELIBERA")
+        run_delibera.bold = True
+        run_delibera.font.size = Pt(12) # Leggermente più grande
+        p_delibera_intro.paragraph_format.space_after = Pt(6)
+
+        delibera_revoca_text = f"Di revocare, con effetto immediato, dalla carica di Amministratore Unico " \
+                               f"della società il Sig. {amministratore_da_revocare}, ringraziandolo per l'opera sin qui svolta."
         
-        if motivo_revoca == "Impedimento a svolgere le funzioni":
-            p = doc.add_paragraph(f"Prende la parola il Sig. […] che illustra all'assemblea l'impedimento dell'Amministratore Unico in carica Sig {nome_revocato} a svolgere le sue funzioni ed invita pertanto l'Assemblea dei soci a deliberare in merito.")
-        else:
-            inadempimenti = admin_revocato.get('inadempimenti', '[Dettagli inadempimenti]')
-            p = doc.add_paragraph(f"Prende la parola il Sig. […] che dichiara che a carico dell'Amministratore Unico in carica Sig {nome_revocato} sono da imputare gravi inadempimenti o irregolarità, tali da giustificarne l'immediata revoca per giusta causa. In particolare il Sig. […] imputa all'Amministratore Unico in carica Sig {nome_revocato} quanto segue:")
-            p = doc.add_paragraph(inadempimenti)
-            p = doc.add_paragraph("L'Assemblea dei soci è quindi chiamata a deliberare in merito.")
-        
-        p = doc.add_paragraph("Prende la parola il Sig. […] che dichiara […].")
-        
-        # Votazione revoca
-        if data.get('votazione_revoca_unanime', True):
-            votazione_text = "all'unanimità"
-        else:
-            voti_contrari = data.get('voti_contrari_revoca', '')
-            votazione_text = f"con il voto contrario dei Sigg. {voti_contrari}"
-        
-        p = doc.add_paragraph(f"Esaurita la discussione, si passa alla votazione con voto palese in forza della quale il Presidente constata che, {votazione_text}, l'assemblea")
-        
-        p = doc.add_paragraph("d e l i b e r a:")
-        run = p.runs[0]
-        run.font.bold = True
-        run.font.underline = True
-        
-        p = doc.add_paragraph(f"di revocare il Sig {nome_revocato} dalla carica di Amministratore Unico;")
+        p_delibera_item = doc.add_paragraph(delibera_revoca_text, style='CustomListBullet') # O CustomListNumber se preferito
+        p_delibera_item.paragraph_format.left_indent = Inches(0.5)
+        p_delibera_item.paragraph_format.first_line_indent = Inches(-0.25)
+        p_delibera_item.paragraph_format.space_after = Pt(12) # Spazio dopo la delibera di revoca
     
     def _add_nomina_discussion(self, doc, data):
-        """Aggiunge discussione nomina"""
-        doc.add_paragraph()
+        """Aggiunge la discussione sulla nomina."""
+        doc.add_paragraph("NOMINA DEL NUOVO ORGANO AMMINISTRATIVO", style='SectionHeader')
+
+        tipo_organo_amministrativo = data.get('tipo_organo_amministrativo', 'Amministratore Unico')
+        text1 = f"Il Presidente invita quindi l'assemblea a deliberare in merito alla nomina " \
+                f"del nuovo organo amministrativo, proponendo la nomina di un {tipo_organo_amministrativo}."
+        p1 = doc.add_paragraph(text1, style='BodyText')
+        p1.paragraph_format.space_after = Pt(6)
+
+        # Dati generici per la delibera di nomina
+        percentuale_voti_favorevoli_nomina = data.get('percentuale_voti_favorevoli_nomina', '[PERCENTUALE VOTI FAVOREVOLI]')
+        numero_voti_favorevoli_nomina = data.get('numero_voti_favorevoli_nomina', '[NUMERO VOTI FAVOREVOLI]')
+        numero_voti_totali_nomina = data.get('numero_voti_totali_nomina', '[NUMERO VOTI TOTALI]')
+
+        # Amministratore Unico
+        if tipo_organo_amministrativo == 'Amministratore Unico':
+            nome_nuovo_amministratore = data.get('nome_nuovo_amministratore', '[NOME NUOVO AMMINISTRATORE]')
+            compenso_nuovo_amministratore = data.get('compenso_nuovo_amministratore', '0,00')
+            durata_incarico_anni = data.get('durata_incarico_anni', '3')
+            scadenza_incarico_data = data.get('scadenza_incarico', '[DATA APPROVAZIONE BILANCIO ESERCIZIO]')
+
+            text_nomina_au_proposta = f"Viene proposto quale Amministratore Unico il Sig. {nome_nuovo_amministratore}."
+            p_prop_au = doc.add_paragraph(text_nomina_au_proposta, style='BodyText')
+            p_prop_au.paragraph_format.space_after = Pt(6)
+
+            text_delibera_intro_au = f"L'assemblea, dopo breve discussione, con il voto favorevole di {percentuale_voti_favorevoli_nomina}% " \
+                                     f"del capitale sociale avente diritto al voto, pari a n. {numero_voti_favorevoli_nomina} voti " \
+                                     f"su n. {numero_voti_totali_nomina} voti totali,"
+            p_delib_intro_au = doc.add_paragraph(text_delibera_intro_au, style='BodyText')
+            p_delib_intro_au.paragraph_format.space_after = Pt(3)
+
+            p_delibera_au_title = doc.add_paragraph(style='BodyText')
+            p_delibera_au_title.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run_delibera_au = p_delibera_au_title.add_run("DELIBERA")
+            run_delibera_au.bold = True
+            run_delibera_au.font.size = Pt(12)
+            p_delibera_au_title.paragraph_format.space_after = Pt(6)
+
+            delibere_au_items = [
+                f"Di nominare Amministratore Unico della società il Sig. {nome_nuovo_amministratore}, il quale, presente all'assemblea, dichiara di accettare la carica e di non trovarsi in alcuna delle cause di ineleggibilità e/o incompatibilità previste dalla legge e dallo statuto.",
+                f"Di stabilire che l'incarico avrà durata di {durata_incarico_anni} esercizi sociali, e quindi fino all'approvazione del bilancio relativo all'esercizio che chiuderà il {scadenza_incarico_data}.",
+                f"Di attribuire all'Amministratore Unico un compenso annuo lordo di Euro {compenso_nuovo_amministratore}, oltre al rimborso delle spese sostenute per l'esercizio del suo ufficio.",
+                "Di conferire all'Amministratore Unico i più ampi poteri di ordinaria e straordinaria amministrazione, con facoltà di nominare procuratori speciali per singoli atti o categorie di atti."
+            ]
+            for item_text in delibere_au_items:
+                p_item = doc.add_paragraph(item_text, style='CustomListBullet')
+                p_item.paragraph_format.left_indent = Inches(0.5)
+                p_item.paragraph_format.first_line_indent = Inches(-0.25)
+                p_item.paragraph_format.space_after = Pt(3)
+            if delibere_au_items: # Aggiungi spazio extra dopo l'ultimo elemento della lista
+                doc.paragraphs[-1].paragraph_format.space_after = Pt(12)
         
-        nuovo_admin = data.get('nuovo_amministratore', {})
-        nome_nuovo = nuovo_admin.get('nome', '[Nome]')
-        qualifica = nuovo_admin.get('qualifica', 'socio')
-        durata = nuovo_admin.get('durata_incarico', 'a tempo indeterminato fino a revoca o dimissioni')
-        compenso = nuovo_admin.get('compenso', '0,00')
-        
-        p = doc.add_paragraph("Il Presidente informa l'assemblea che si rende ora necessaria la nomina di un nuovo organo amministrativo.")
-        
-        p = doc.add_paragraph("Il Presidente ricorda all'assemblea quanto previsto dall'art. 2475 del Codice Civile e dall'atto costitutivo della società.")
-        
-        p = doc.add_paragraph(f"Prende la parola il socio sig. […] che propone di nominare Amministratore Unico della società il sig. {nome_nuovo}, dando evidenza della comunicazione scritta con cui il candidato, prima di accettare l'eventuale nomina, ha dichiarato:")
-        
-        p = doc.add_paragraph("l'insussistenza a suo carico di cause di ineleggibilità alla carica di amministratore di società ed in particolare di non essere stato dichiarato interdetto, inabilitato o fallito e di non essere stato condannato ad una pena che importa l'interdizione, anche temporanea, dai pubblici uffici o l'incapacità ad esercitare uffici direttivi.")
-        
-        p = doc.add_paragraph("l'insussistenza a suo carico di interdizioni dal ruolo di amministratore adottate da una Stato membro dell'Unione Europea.")
-        
-        if data.get('include_compensi', True):
-            p = doc.add_paragraph("Il Presidente invita anche l'assemblea a deliberare il compenso da attribuire all'organo amministrativo che verrà nominato, ai sensi dell'art. […] dello statuto sociale.")
-        
-        # Votazione nomina
-        if data.get('votazione_nomina_unanime', True):
-            votazione_text = "all'unanimità"
+        # Consiglio di Amministrazione (CdA)
+        elif tipo_organo_amministrativo == 'Consiglio di Amministrazione':
+            membri_cda_input = data.get('membri_cda', []) # Lista di dict [{'nome_consigliere': '...', 'ruolo_cda': '...'}]
+            presidente_cda = data.get('presidente_cda', '[NOME PRESIDENTE CDA]')
+            durata_incarico_cda_anni = data.get('durata_incarico_cda_anni', '3')
+            scadenza_incarico_cda_data = data.get('scadenza_incarico_cda', '[DATA APPROVAZIONE BILANCIO ESERCIZIO]')
+            compenso_cda_descr = data.get('compenso_cda_descrizione', 'un compenso annuo lordo di Euro [IMPORTO] per il Presidente e Euro [IMPORTO] per ciascun Consigliere')
+
+            num_membri_cda = len(membri_cda_input) if membri_cda_input else '[NUMERO]'
+            text_nomina_cda_proposta = f"Viene proposto di nominare un Consiglio di Amministrazione composto da {num_membri_cda} membri."
+            p_prop_cda = doc.add_paragraph(text_nomina_cda_proposta, style='BodyText')
+            p_prop_cda.paragraph_format.space_after = Pt(6)
+            
+            text_delibera_intro_cda = f"L'assemblea, dopo breve discussione, con il voto favorevole di {percentuale_voti_favorevoli_nomina}% " \
+                                      f"del capitale sociale avente diritto al voto, pari a n. {numero_voti_favorevoli_nomina} voti " \
+                                      f"su n. {numero_voti_totali_nomina} voti totali,"
+            p_delib_intro_cda = doc.add_paragraph(text_delibera_intro_cda, style='BodyText')
+            p_delib_intro_cda.paragraph_format.space_after = Pt(3)
+
+            p_delibera_cda_title = doc.add_paragraph(style='BodyText')
+            p_delibera_cda_title.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run_delibera_cda = p_delibera_cda_title.add_run("DELIBERA")
+            run_delibera_cda.bold = True
+            run_delibera_cda.font.size = Pt(12)
+            p_delibera_cda_title.paragraph_format.space_after = Pt(6)
+
+            delibere_cda_items = [
+                "Di nominare quali membri del Consiglio di Amministrazione i seguenti signori, i quali, presenti all'assemblea, dichiarano di accettare la carica e di non trovarsi in alcuna delle cause di ineleggibilità e/o incompatibilità previste dalla legge e dallo statuto:"
+            ]
+            for item_text in delibere_cda_items:
+                # Questo è un'introduzione alla lista dei membri
+                p_item_intro = doc.add_paragraph(item_text, style='BodyText') # Non è un bullet item di per sé
+                p_item_intro.paragraph_format.space_after = Pt(3)
+
+            if not membri_cda_input:
+                membri_cda_input = [{'nome_consigliere': '[NOME CONSIGLIERE 1]', 'ruolo_cda': 'Consigliere'}]
+            for membro in membri_cda_input:
+                membro_text = f"Sig. {membro.get('nome_consigliere', '[NOME CONSIGLIERE]')}, {membro.get('ruolo_cda', 'Consigliere')}"
+                p_membro = doc.add_paragraph(membro_text, style='CustomListBullet')
+                p_membro.paragraph_format.left_indent = Inches(0.75) # Indentazione maggiore per i membri
+                p_membro.paragraph_format.first_line_indent = Inches(-0.25)
+                p_membro.paragraph_format.space_after = Pt(2)
+            if membri_cda_input: # Spazio dopo l'elenco dei membri
+                 doc.paragraphs[-1].paragraph_format.space_after = Pt(6)
+            
+            altre_delibere_cda = [
+                f"Di nominare Presidente del Consiglio di Amministrazione il Sig. {presidente_cda}.",
+                f"Di stabilire che l'incarico per tutti i membri del Consiglio di Amministrazione avrà durata di {durata_incarico_cda_anni} esercizi sociali, e quindi fino all'approvazione del bilancio relativo all'esercizio che chiuderà il {scadenza_incarico_cda_data}.",
+                f"Di attribuire ai membri del Consiglio di Amministrazione {compenso_cda_descr}, oltre al rimborso delle spese sostenute per l'esercizio del loro ufficio.",
+                "Di conferire al Consiglio di Amministrazione i più ampi poteri di ordinaria e straordinaria amministrazione, con facoltà di nominare procuratori speciali per singoli atti o categorie di atti. Al Presidente del Consiglio di Amministrazione spetta la legale rappresentanza della società."
+            ]
+            for item_text in altre_delibere_cda:
+                p_item = doc.add_paragraph(item_text, style='CustomListBullet')
+                p_item.paragraph_format.left_indent = Inches(0.5)
+                p_item.paragraph_format.first_line_indent = Inches(-0.25)
+                p_item.paragraph_format.space_after = Pt(3)
+            if altre_delibere_cda:
+                doc.paragraphs[-1].paragraph_format.space_after = Pt(12)
+
+        # Fallback se tipo_organo_amministrativo non è gestito
         else:
-            voti_contrari = data.get('voti_contrari_nomina', '')
-            votazione_text = f"con il voto contrario dei Sigg. {voti_contrari}"
-        
-        p = doc.add_paragraph(f"Segue breve discussione tra i soci al termine della quale si passa alla votazione con voto palese in forza della quale il Presidente constata che, {votazione_text}, l'assemblea")
-        
-        p = doc.add_paragraph("d e l i b e r a:")
-        run = p.runs[0]
-        run.font.bold = True
-        run.font.underline = True
-        
-        p = doc.add_paragraph(f"che la società sia amministrata da un amministratore unico nominato nella persona del sig. {nome_nuovo}")
-        
-        p = doc.add_paragraph(f"che l'amministratore resti in carica {durata.lower()}")
-        
-        if data.get('include_compensi', True):
-            rimborso_text = " oltre al rimborso delle spese sostenute in ragione del suo ufficio" if data.get('rimborso_spese', True) else ""
-            p = doc.add_paragraph(f"di attribuire all'amministratore unico testè nominato il compenso annuo ed omnicomprensivo pari a nominali euro {compenso} al lordo di ritenute fiscali e previdenziali{rimborso_text}. Il compenso verrà liquidato periodicamente, in ragione della permanenza in carica.")
-        
-        # Accettazione
-        p = doc.add_paragraph(f"Il sig. {nome_nuovo}, presente in assemblea in qualità di {qualifica.lower()} accetta l'incarico e ringrazia l'assemblea per la fiducia accordata.")
-        
-        # Separatore
-        p = doc.add_paragraph("*     *     *")
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            doc.add_paragraph(f"Discussione sulla nomina di {tipo_organo_amministrativo} non implementata.", style='BodyText').paragraph_format.space_after = Pt(12)
     
     def _add_closing_section(self, doc, data):
-        """Aggiunge sezione chiusura"""
-        doc.add_paragraph()
+        """Aggiunge la sezione di chiusura."""
+        ora_fine_assemblea = data.get('ora_fine_assemblea', '[ORA FINE ASSEMBLEA]')
         
-        p = doc.add_paragraph("Il Presidente constata che l'ordine del giorno è esaurito e che nessuno chiede la parola.")
-        
-        p = doc.add_paragraph("Viene quindi redatto il presente verbale e dopo averne data lettura, il Presidente constata che l'assemblea all'unanimità, con voto palese, ne approva il testo [eventualmente unitamente a quanto allegato].")
-        
-        ora_chiusura = data.get('ora_chiusura', '[ORA]')
-        p = doc.add_paragraph(f"L'assemblea viene sciolta alle ore {ora_chiusura}.")
+        closing_text = f"Null'altro essendovi a deliberare e nessuno chiedendo la parola, il Presidente dichiara sciolta l'assemblea alle ore {ora_fine_assemblea}, previa redazione, lettura e approvazione unanime del presente verbale, che consta di [NUMERO PAGINE] pagine."
+        # Nota: [NUMERO PAGINE] è un placeholder che andrebbe gestito dinamicamente se possibile, o rimosso/modificato.
+        p_closing = doc.add_paragraph(closing_text, style='BodyText')
+        p_closing.paragraph_format.space_before = Pt(12)
+        p_closing.paragraph_format.space_after = Pt(12)
+
+        p_lcs = doc.add_paragraph("Letto, confermato e sottoscritto.", style='BodyText')
+        p_lcs.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.LEFT # O CENTER se preferito
+        p_lcs.paragraph_format.space_before = Pt(18) # Più spazio prima delle firme
+        p_lcs.paragraph_format.space_after = Pt(6)
     
     def _add_signatures(self, doc, data):
-        """Aggiunge firme"""
-        doc.add_paragraph()
-        doc.add_paragraph()
+        """Aggiunge le firme."""
+        # Utilizziamo una tabella per allineare le firme
+        # Questo è un approccio comune per layout di firme affiancate.
+        # Se le firme devono essere una sotto l'altra, la tabella non è strettamente necessaria
+        # ma può aiutare a controllare la larghezza e lo spazio.
+
+        # Decidiamo se usare una tabella o paragrafi semplici
+        # Per ora, usiamo paragrafi semplici con allineamento, che è più facile da gestire
+        # per firme che appaiono una dopo l'altra verticalmente o allineate a sinistra/destra.
+
+        presidente_nome = data.get('presidente_assemblea', '[NOME PRESIDENTE ASSEMBLEA]')
+        segretario_nome = data.get('segretario_assemblea', '[NOME SEGRETARIO ASSEMBLEA]')
+
+        # Spazio prima delle firme
+        # doc.add_paragraph().paragraph_format.space_before = Pt(24) # Spazio abbondante
+
+        # Firma del Presidente
+        p_pres_label = doc.add_paragraph(style='BodyText')
+        p_pres_label.paragraph_format.space_before = Pt(36) # Aumentato spazio prima
+        p_pres_label.paragraph_format.space_after = Pt(0)
+        run_pres_label = p_pres_label.add_run("Il Presidente")
+        # run_pres_label.bold = True # Opzionale, se lo stile 'BodyText' non è già bold
+        # p_pres_label.alignment = WD_ALIGN_PARAGRAPH.LEFT # O CENTER/RIGHT
         
-        table = doc.add_table(rows=2, cols=2)
-        table.style = 'Table Grid'
-        table.autofit = False
-        
-        hdr_cells = table.rows[0].cells
-        hdr_cells[0].text = 'Il Presidente'
-        hdr_cells[1].text = 'Il Segretario'
-        
-        row_cells = table.rows[1].cells
-        row_cells[0].text = data.get('presidente', '[PRESIDENTE]')
-        row_cells[1].text = data.get('segretario', '[SEGRETARIO]')
-        
-        for row in table.rows:
-            for cell in row.cells:
-                cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p_pres_name = doc.add_paragraph(presidente_nome, style='BodyText')
+        p_pres_name.paragraph_format.space_before = Pt(0) 
+        p_pres_name.paragraph_format.space_after = Pt(24) # Spazio dopo il nome del presidente
+        # p_pres_name.alignment = WD_ALIGN_PARAGRAPH.LEFT # O CENTER/RIGHT
+
+        # Firma del Segretario
+        p_secr_label = doc.add_paragraph(style='BodyText')
+        p_secr_label.paragraph_format.space_before = Pt(12) # Spazio prima del segretario
+        p_secr_label.paragraph_format.space_after = Pt(0)
+        run_secr_label = p_secr_label.add_run("Il Segretario")
+        # run_secr_label.bold = True # Opzionale
+        # p_secr_label.alignment = WD_ALIGN_PARAGRAPH.LEFT # O CENTER/RIGHT
+
+        p_secr_name = doc.add_paragraph(segretario_nome, style='BodyText')
+        p_secr_name.paragraph_format.space_before = Pt(0)
+        p_secr_name.paragraph_format.space_after = Pt(12) # Spazio finale
+        # p_secr_name.alignment = WD_ALIGN_PARAGRAPH.LEFT # O CENTER/RIGHT
+
+        # Se si volessero le firme affiancate, una tabella sarebbe più indicata:
+        # table = doc.add_table(rows=2, cols=2)
+        # table.cell(0, 0).text = 'Il Presidente'
+        # table.cell(1, 0).text = presidente_nome
+        # table.cell(0, 1).text = 'Il Segretario'
+        # table.cell(1, 1).text = segretario_nome
+        # # Applicare stili e formattazione alle celle/paragrafi della tabella
 
 # Registra il template
-DocumentTemplateFactory.register_template('verbale_assemblea_revoca_nomina', VerbaleRevocaNominaTemplate) 
+DocumentTemplateFactory.register_template('verbale_assemblea_revoca_nomina', VerbaleRevocaNominaTemplate)

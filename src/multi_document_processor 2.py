@@ -2,7 +2,6 @@ from typing import Dict, List, Any, Optional, Tuple
 from mistralai import Mistral
 import streamlit as st
 import json
-from typing import Dict, Any
 from document_processors import DocumentProcessorFactory
 
 class MultiDocumentProcessor:
@@ -30,10 +29,7 @@ class MultiDocumentProcessor:
                 document_text = file_bytes.decode('utf-8')
             
             # Extract information
-            if file_name.lower().endswith('.pdf'):
-                extracted_info = processor.extract_information(document_text, pdf_bytes=file_bytes)
-            else:
-                extracted_info = processor.extract_information(document_text)
+            extracted_info = processor.extract_information(document_text)
             
             # Store processed document
             doc_info = {
@@ -1122,4 +1118,4 @@ Rispondi SOLO con un dizionario JSON valido. Assicurati che:
                 categories["altri"].append(field)
         
         # Remove empty categories
-        return {k: v for k, v in categories.items() if v}
+        return {k: v for k, v in categories.items() if v} 

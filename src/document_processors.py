@@ -81,35 +81,190 @@ class DocumentProcessor(ABC):
         
         return pypdf2_text, ocr_text
     
-    def extract_information(self, text: str) -> Dict[str, Any]:
-        """Extract information from document text using AI"""
+    def extract_structured_info_with_ocr(self, pdf_bytes: bytes) -> Dict[str, Any]:
+        """Extract structured information directly using Mistral OCR Document Annotation"""
+        from pydantic import BaseModel, Field
+        from mistralai.extra import response_format_from_pydantic_model
+        
+        try:
+            # Upload del PDF
+            uploaded_pdf = self.client.files.upload(
+                file={
+                    "file_name": "document.pdf",
+                    "content": pdf_bytes
+                },
+                purpose="ocr"
+            )
+            
+            # Definisci il modello Pydantic per l'estrazione strutturata
+            if isinstance(self, DocumentoRiconoscimentoProcessor):
+                class IdentityDocument(BaseModel):
+                    nome: str = Field(default="", description="Nome della persona")
+                    cognome: str = Field(default="", description="Cognome della persona")
+                    data_nascita: str = Field(default="", description="Data di nascita")
+                    luogo_nascita: str = Field(default="", description="Luogo di nascita")
+                    codice_fiscale: str = Field(default="", description="Codice fiscale")
+                    tipo_documento: str = Field(default="", description="Tipo di documento")
+                    numero_documento: str = Field(default="", description="Numero del documento")
+                    data_rilascio: str = Field(default="", description="Data di rilascio")
+                    data_scadenza: str = Field(default="", description="Data di scadenza")
+                    ente_rilascio: str = Field(default="", description="Ente di rilascio")
+                
+                annotation_model = IdentityDocument
+            
+            elif isinstance(self, VisuraCameraleProcessor):
+                class VisuraCamerale(BaseModel):
+                    denominazione: str = Field(default="", description="Denominazione sociale")
+                    sede_legale: str = Field(default="", description="Sede legale")
+                    pec: str = Field(default="", description="Indirizzo PEC")
+                    codice_fiscale: str = Field(default="", description="Codice fiscale")
+                    forma_giuridica: str = Field(default="", description="Forma giuridica")
+                    rappresentante: str = Field(default="", description="Rappresentante legale")
+                    capitale_sociale: str = Field(default="", description="Capitale sociale")
+                
+                annotation_model = VisuraCamerale
+            
+            else:
+                # Modello generico per altri tipi di documento
+                class GenericDocument(BaseModel):
+                    content: str = Field(default="", description="Contenuto principale del documento")
+                    key_information: str = Field(default="", description="Informazioni chiave estratte")
+                
+                annotation_model = GenericDocument
+            
+            # Usa Document Annotation per estrarre informazioni strutturate
+            st.info("🔍 Estrazione strutturata con Mistral OCR Document Annotation...")
+            
+            ocr_response = self.client.ocr.process(
+                model="mistral-ocr-latest",
+                document={
+                    "type": "document_url",
+                    "document_url": self.client.files.get_signed_url(file_id=uploaded_pdf.id).url
+                },
+                document_annotation_format=response_format_from_pydantic_model(annotation_model)
+            )
+            
+            # Estrai le informazioni strutturate dalla risposta
+            if hasattr(ocr_response, 'document_annotation') and ocr_response.document_annotation:
+                structured_info = ocr_response.document_annotation
+                st.success("✅ Estrazione strutturata completata con successo!")
+                return structured_info
+            else:
+                st.warning("⚠️ Nessuna informazione strutturata estratta, fallback al metodo tradizionale")
+                return None
+                
+        except Exception as e:
+            st.error(f"Errore nell'estrazione strutturata: {e}")
+            st.info("🔄 Fallback al metodo di estrazione tradizionale...")
+            return None
+    
+    def extract_information(self, text: str, pdf_bytes: bytes = None) -> Dict[str, Any]:
+        """Extract information using Mistral OCR Document Annotation first, then fallback to chat completion"""
+        import time
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+        
         default_info = self.get_default_structure()
+        
+        # Prima prova con Document Annotation se abbiamo i bytes del PDF
+        if pdf_bytes is not None:
+            st.info("🚀 Tentativo di estrazione strutturata con Mistral OCR...")
+            structured_info = self.extract_structured_info_with_ocr(pdf_bytes)
+            
+            if structured_info:
+                # Converti il risultato strutturato in dizionario
+                if hasattr(structured_info, '__dict__'):
+                    extracted_dict = structured_info.__dict__
+                elif isinstance(structured_info, dict):
+                    extracted_dict = structured_info
+                else:
+                    extracted_dict = {}
+                
+                # Aggiorna le informazioni di default con quelle estratte
+                for key, value in extracted_dict.items():
+                    if key in default_info and value and str(value).strip():
+                        default_info[key] = str(value).strip()
+                
+                # Verifica se abbiamo estratto informazioni significative
+                non_empty_fields = sum(1 for v in default_info.values() if v and str(v).strip())
+                if non_empty_fields >= 3:  # Se abbiamo almeno 3 campi compilati
+                    st.success(f"✅ Estrazione strutturata completata! {non_empty_fields} campi estratti.")
+                    return default_info
+                else:
+                    st.warning("⚠️ Estrazione strutturata parziale, provo con il metodo tradizionale...")
+        
+        # Fallback al metodo tradizionale con chat completion
+        st.info("🔄 Estrazione con chat completion...")
         prompt = self.get_extraction_prompt(text)
         
         messages = [{"role": "user", "content": prompt}]
         
-        try:
-            chat_response = self.client.chat.complete(
+        def make_api_call():
+            return self.client.chat.complete(
                 model="mistral-small-latest",
                 messages=messages,
                 temperature=0
             )
-            
-            response_text = chat_response.choices[0].message.content
-            json_start = response_text.find('{')
-            json_end = response_text.rfind('}')
-            
-            if json_start != -1 and json_end != -1:
-                json_string = response_text[json_start:json_end + 1]
-                extracted_info = json.loads(json_string)
-                default_info.update(extracted_info)
-            else:
-                st.error("Impossibile trovare un blocco JSON valido nella risposta dell'API.")
+        
+        # Meccanismo di retry con timeout ridotti per evitare blocchi
+        max_retries = 2  # Ridotto a 2 tentativi
+        timeouts = [10, 20]  # Timeout molto più bassi
+        
+        for attempt in range(max_retries):
+            try:
+                if attempt > 0:
+                    st.info(f"🔄 Tentativo {attempt + 1} di {max_retries}...")
                 
-        except json.JSONDecodeError as e:
-            st.error(f"Errore nel decodificare la risposta JSON: {e}")
-        except Exception as e:
-            st.error(f"Errore nell'estrazione delle informazioni: {e}")
+                current_timeout = timeouts[attempt]
+                st.info(f"⏳ Timeout impostato: {current_timeout} secondi")
+                
+                # Usa ThreadPoolExecutor con timeout progressivo
+                with ThreadPoolExecutor() as executor:
+                    future = executor.submit(make_api_call)
+                    start_time = time.time()
+                    
+                    try:
+                        chat_response = future.result(timeout=current_timeout)
+                        elapsed_time = time.time() - start_time
+                        st.success(f"✅ Estrazione completata in {elapsed_time:.1f} secondi")
+                        
+                        response_text = chat_response.choices[0].message.content
+                        json_start = response_text.find('{')
+                        json_end = response_text.rfind('}')
+                        
+                        if json_start != -1 and json_end != -1:
+                            json_string = response_text[json_start:json_end + 1]
+                            extracted_info = json.loads(json_string)
+                            default_info.update(extracted_info)
+                            return default_info  # Successo, esci dal loop
+                        else:
+                            st.error("Impossibile trovare un blocco JSON valido nella risposta dell'API.")
+                            if attempt == max_retries - 1:
+                                break
+                                
+                    except FutureTimeoutError:
+                        elapsed = time.time() - start_time
+                        error_msg = f"⏰ Timeout al tentativo {attempt + 1}: L'API non risponde entro {current_timeout}s (elapsed: {elapsed:.1f}s)"
+                        if attempt == max_retries - 1:
+                            st.error(f"{error_msg}\n\n💡 **Possibili soluzioni:**\n- Verifica la connessione internet\n- Riprova tra qualche minuto\n- Il testo potrebbe essere troppo complesso")
+                        else:
+                            st.warning(error_msg)
+                            time.sleep(3)  # Pausa più lunga prima del retry
+                    
+            except json.JSONDecodeError as e:
+                     error_msg = f"Errore JSON al tentativo {attempt + 1}: {e}"
+                     if attempt == max_retries - 1:
+                         st.error(f"{error_msg} Impossibile decodificare la risposta.")
+                     else:
+                         st.warning(error_msg)
+                         time.sleep(1)  # Pausa ridotta
+                         
+            except Exception as e:
+                error_msg = f"Errore al tentativo {attempt + 1}: {e}"
+                if attempt == max_retries - 1:
+                    st.error(f"{error_msg}\n\n🔧 **Debug:** {type(e).__name__}, {len(text)} caratteri")
+                else:
+                    st.warning(error_msg)
+                    time.sleep(1)  # Pausa ridotta
         
         return default_info
 
@@ -302,43 +457,70 @@ class DocumentoRiconoscimentoProcessor(DocumentProcessor):
         return enhanced_info
     
     def get_extraction_prompt(self, text: str) -> str:
-        return f"""Estrai le seguenti informazioni dal documento di riconoscimento (passaporto, carta d'identità, patente), rispondendo SOLO con un dizionario JSON.
-
-IMPORTANTE: Il testo potrebbe essere frammentato o contenere errori OCR. Cerca di interpretare i pattern e ricostruire le informazioni anche se incomplete.
-
-PATTERN COMUNI:
-- Passaporto italiano: numero formato YY######A (es: AB1234567)
-- Carta d'identità: numero 9 cifre + lettera (es: 123456789A)
-- Date spesso in formato DD/MM/YYYY o DD.MM.YYYY
-- Luoghi di nascita/residenza spesso in maiuscolo
-- Codice fiscale: 16 caratteri alfanumerici
-
-Estrai:
-- tipo_documento (es: "Passaporto", "Carta d'Identità", "Patente di Guida")
-- numero_documento (cerca pattern di numeri con lettere)
-- data_rilascio (formato YYYY-MM-DD se possibile)
-- data_scadenza (formato YYYY-MM-DD se possibile, cerca "SCAD" o "VAL")
-- ente_rilascio (comune, questura o ministero che ha rilasciato)
-- nome (prova a identificare dai pattern di testo)
-- cognome (spesso in maiuscolo o prima del nome)
-- data_nascita (formato YYYY-MM-DD se possibile, cerca "NATO" o "BORN")
-- luogo_nascita (cerca dopo "NATO A" o "BORN IN")
-- codice_fiscale (16 caratteri alfanumerici)
-- indirizzo (residenza o domicilio, cerca "VIA", "PIAZZA", "CORSO")
-- cittadinanza (di solito "ITALIANA" o "ITALIAN")
-- note: lista di altre informazioni rilevanti trovate nel documento
-
-Testo del documento (potrebbe contenere errori OCR):
-{text}
-
-NOTA: Se non riesci a trovare un'informazione specifica, lascia il campo vuoto (""). 
-Non inventare dati, ma interpreta il testo al meglio delle tue capacità.
+        # Limita drasticamente la lunghezza del testo per evitare timeout
+        max_text_length = 2000
+        if len(text) > max_text_length:
+            # Prendi solo l'inizio del testo per velocizzare l'elaborazione
+            text = text[:max_text_length]
+            st.info(f"📝 Testo limitato a {max_text_length} caratteri per evitare timeout")
         
-Rispondi SOLO con il dizionario JSON, senza altro testo."""
+        return f"""Estrai dal documento:
+- nome, cognome
+- data_nascita
+- luogo_nascita  
+- codice_fiscale
+- tipo_documento, numero_documento
+- data_rilascio, data_scadenza
+- ente_rilascio
 
-    def extract_information(self, text: str) -> Dict[str, Any]:
-        """Extract information from document text using AI with enhanced strategies for identity documents"""
+Testo: {text}
+
+Rispondi solo JSON."""
+
+    def extract_information(self, text: str, pdf_bytes: bytes = None) -> Dict[str, Any]:
+        """Extract information using Mistral OCR Document Annotation first, then enhanced fallback strategies for identity documents"""
+        import time
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+        
         default_info = self.get_default_structure()
+        
+        # Prima prova con Document Annotation se abbiamo i bytes del PDF
+        if pdf_bytes is not None:
+            st.info("🚀 Tentativo di estrazione strutturata con Mistral OCR per documento di identità...")
+            structured_info = self.extract_structured_info_with_ocr(pdf_bytes)
+            
+            if structured_info:
+                # Converti il risultato strutturato in dizionario
+                if hasattr(structured_info, '__dict__'):
+                    extracted_dict = structured_info.__dict__
+                elif isinstance(structured_info, dict):
+                    extracted_dict = structured_info
+                else:
+                    extracted_dict = {}
+                
+                # Aggiorna le informazioni di default con quelle estratte
+                for key, value in extracted_dict.items():
+                    if key in default_info and value and str(value).strip():
+                        default_info[key] = str(value).strip()
+                
+                # Verifica se abbiamo estratto informazioni significative
+                non_empty_fields = sum(1 for v in default_info.values() if v and str(v).strip())
+                if non_empty_fields >= 3:  # Se abbiamo almeno 3 campi compilati
+                    st.success(f"✅ Estrazione strutturata completata! {non_empty_fields} campi estratti.")
+                    if 'note' not in default_info:
+                        default_info['note'] = []
+                    default_info['note'].append("Estratto con Mistral OCR Document Annotation")
+                    return default_info
+                else:
+                    st.warning("⚠️ Estrazione strutturata parziale, provo con strategie avanzate...")
+        
+        def make_api_call_with_prompt(prompt, temperature=0):
+            messages = [{"role": "user", "content": prompt}]
+            return self.client.chat.complete(
+                model="mistral-small-latest",
+                messages=messages,
+                temperature=temperature
+            )
         
         # Se il testo è molto breve o sembra incompleto, usiamo strategie multiple
         if len(text.strip()) < 100:
@@ -362,59 +544,119 @@ Rispondi SOLO con il dizionario JSON, senza altro testo."""
             {{"tipo_documento": "", "numero_documento": "", "nome": "", "cognome": "", "data_nascita": "", "codice_fiscale": "", "note": []}}
             """
             
-            try:
-                messages = [{"role": "user", "content": simple_prompt}]
-                chat_response = self.client.chat.complete(
-                    model="mistral-small-latest",
-                    messages=messages,
-                    temperature=0.3  # Leggermente più creativo per inferenze
-                )
-                
-                response_text = chat_response.choices[0].message.content
-                json_start = response_text.find('{')
-                json_end = response_text.rfind('}')
-                
-                if json_start != -1 and json_end != -1:
-                    json_string = response_text[json_start:json_end + 1]
-                    extracted_info = json.loads(json_string)
-                    default_info.update(extracted_info)
+            # Meccanismo di retry con timeout ridotti per strategia avanzata
+            max_retries_advanced = 2
+            timeouts_advanced = [8, 15]  # Timeout molto ridotti per strategia avanzata
+            
+            for attempt in range(max_retries_advanced):
+                try:
+                    if attempt > 0:
+                        st.info(f"🔄 Retry strategia avanzata {attempt + 1}/{max_retries_advanced}...")
                     
-                    # Aggiungi nota sul metodo di estrazione
-                    if 'note' not in default_info:
-                        default_info['note'] = []
-                    default_info['note'].append("Estratto con strategia avanzata - testo frammentato")
+                    current_timeout = timeouts_advanced[attempt]
+                    st.info(f"⏳ Timeout strategia avanzata: {current_timeout} secondi")
                     
-            except Exception as e:
-                st.warning(f"Strategia semplificata fallita: {e}")
+                    with ThreadPoolExecutor() as executor:
+                        future = executor.submit(make_api_call_with_prompt, simple_prompt, 0.3)
+                        start_time = time.time()
+                        chat_response = future.result(timeout=current_timeout)
+                        elapsed_time = time.time() - start_time
+                        st.success(f"✅ Estrazione avanzata completata in {elapsed_time:.1f} secondi")
+                    
+                    response_text = chat_response.choices[0].message.content
+                    json_start = response_text.find('{')
+                    json_end = response_text.rfind('}')
+                    
+                    if json_start != -1 and json_end != -1:
+                        json_string = response_text[json_start:json_end + 1]
+                        extracted_info = json.loads(json_string)
+                        default_info.update(extracted_info)
+                        
+                        # Aggiungi nota sul metodo di estrazione
+                        if 'note' not in default_info:
+                            default_info['note'] = []
+                        default_info['note'].append("Estratto con strategia avanzata - testo frammentato")
+                        break  # Successo, esci dal loop
+                        
+                except FutureTimeoutError:
+                    elapsed = time.time() - start_time
+                    if attempt == max_retries_advanced - 1:
+                        st.error(f"⏰ Timeout: L'estrazione avanzata ha fallito tutti i tentativi (elapsed: {elapsed:.1f}s).")
+                    else:
+                        st.warning(f"⏰ Timeout tentativo {attempt + 1} (elapsed: {elapsed:.1f}s), riprovo...")
+                        time.sleep(1)
+                except Exception as e:
+                    if attempt == max_retries_advanced - 1:
+                        st.warning(f"Strategia semplificata fallita definitivamente: {e}")
+                    else:
+                        st.warning(f"Tentativo {attempt + 1} fallito: {e}")
+                        time.sleep(1)
         
         else:
             # Usa il metodo standard per testi più lunghi
+            st.info("🔄 Estrazione con chat completion...")
             prompt = self.get_extraction_prompt(text)
             
-            messages = [{"role": "user", "content": prompt}]
+            # Retry per strategia standard con timeout ridotti
+            max_retries = 2
+            timeouts = [12, 25]  # Timeout ridotti
             
-            try:
-                chat_response = self.client.chat.complete(
-                    model="mistral-small-latest",
-                    messages=messages,
-                    temperature=0
-                )
-                
-                response_text = chat_response.choices[0].message.content
-                json_start = response_text.find('{')
-                json_end = response_text.rfind('}')
-                
-                if json_start != -1 and json_end != -1:
-                    json_string = response_text[json_start:json_end + 1]
-                    extracted_info = json.loads(json_string)
-                    default_info.update(extracted_info)
-                else:
-                    st.error("Impossibile trovare un blocco JSON valido nella risposta dell'API.")
+            for attempt in range(max_retries):
+                try:
+                    if attempt > 0:
+                        st.info(f"🔄 Tentativo {attempt + 1} di {max_retries}...")
                     
-            except json.JSONDecodeError as e:
-                st.error(f"Errore nel decodificare la risposta JSON: {e}")
-            except Exception as e:
-                st.error(f"Errore nell'estrazione delle informazioni: {e}")
+                    current_timeout = timeouts[attempt]
+                    st.info(f"⏳ Timeout impostato: {current_timeout} secondi")
+                    
+                    with ThreadPoolExecutor() as executor:
+                        future = executor.submit(make_api_call_with_prompt, prompt, 0)
+                        start_time = time.time()
+                        
+                        try:
+                            chat_response = future.result(timeout=current_timeout)
+                            elapsed_time = time.time() - start_time
+                            st.success(f"✅ Estrazione completata in {elapsed_time:.1f} secondi")
+                            
+                            response_text = chat_response.choices[0].message.content
+                            json_start = response_text.find('{')
+                            json_end = response_text.rfind('}')
+                            
+                            if json_start != -1 and json_end != -1:
+                                json_string = response_text[json_start:json_end + 1]
+                                extracted_info = json.loads(json_string)
+                                default_info.update(extracted_info)
+                                break  # Successo, esci dal loop
+                            else:
+                                if attempt == max_retries - 1:
+                                    st.error("Impossibile trovare un blocco JSON valido nella risposta dell'API.")
+                                else:
+                                    st.warning(f"Risposta non valida al tentativo {attempt + 1}, riprovo...")
+                                    
+                        except FutureTimeoutError:
+                             elapsed = time.time() - start_time
+                             error_msg = f"⏰ Timeout {current_timeout}s (elapsed: {elapsed:.1f}s)"
+                             if attempt == max_retries - 1:
+                                 st.error(f"{error_msg}\n\n💡 **Soluzioni:**\n- Verifica connessione internet\n- Documento troppo complesso")
+                             else:
+                                 st.warning(error_msg)
+                                 time.sleep(1)  # Pausa ridotta
+                        
+                except json.JSONDecodeError as e:
+                    error_msg = f"Errore JSON al tentativo {attempt + 1}: {e}"
+                    if attempt == max_retries - 1:
+                        st.error(f"{error_msg} Impossibile decodificare la risposta.")
+                    else:
+                        st.warning(error_msg)
+                        time.sleep(1)  # Pausa ridotta
+                        
+                except Exception as e:
+                    error_msg = f"Errore al tentativo {attempt + 1}: {e}"
+                    if attempt == max_retries - 1:
+                        st.error(f"{error_msg}\n\n🔧 **Debug info:**\n- Lunghezza testo: {len(text)} caratteri\n- Tipo errore: {type(e).__name__}")
+                    else:
+                        st.warning(error_msg)
+                        time.sleep(1)  # Pausa ridotta
         
         return default_info
 
@@ -527,6 +769,62 @@ class ContrattoProcessor(DocumentProcessor):
         Rispondi SOLO con il dizionario JSON, senza altro testo."""
 
 
+class VerbaleAssembleaProcessor(DocumentProcessor):
+    """Processor for Verbale di Assemblea documents"""
+
+    def get_document_type_name(self) -> str:
+        return "Verbale di Assemblea"
+
+    def get_default_structure(self) -> Dict[str, Any]:
+        return {
+            "data_assemblea_str": "", # es. "13/06/2025"
+            "ora_assemblea_str": "",  # es. "10:30"
+            "luogo_assemblea": "",    # es. "SEDE SOCIALE CATANIA (CT) VIA GABRIELE D'ANNUNZIO 56 CAP 95128"
+            "tipo_assemblea": "",     # es. "Ordinaria", "Straordinaria"
+            "presidente_assemblea": "", # es. "PETRALIA ROSARIO"
+            "segretario_assemblea": "", # opzionale
+            "soci_presenti_raw": "",  # Testo grezzo relativo ai soci presenti e capitale
+            "capitale_sociale_totale_str": "", # es. "10000.00" (opzionale, se menzionato)
+            "capitale_nominale_str": "", # es. "8000.00" (capitale rappresentato dai presenti)
+            "percentuale_capitale_str": "", # es. "80.00" (percentuale del capitale presente)
+            "ordine_del_giorno_raw": "", # Testo grezzo dell'ordine del giorno
+            "punti_ordine_giorno": [], # Lista dei singoli punti all'OdG
+            "delibere_raw": "",       # Testo grezzo delle delibere
+            "allegati_raw": "",       # Testo grezzo relativo agli allegati
+            "ora_chiusura_str": "",   # es. "12:45" (opzionale)
+            "note_verbale": ""        # Eventuali note aggiuntive
+        }
+
+    def get_extraction_prompt(self, text: str) -> str:
+        return f"""Estrai le seguenti informazioni dal verbale di assemblea, rispondendo SOLO con un dizionario JSON.
+Presta particolare attenzione ai formati richiesti per date e ore.
+Cerca di estrarre 'capitale_nominale_str' e 'percentuale_capitale_str' dal contesto dei soci presenti.
+
+Informazioni da estrarre:
+- data_assemblea_str (data dell'assemblea, es. \"GG/MM/AAAA\")
+- ora_assemblea_str (ora di inizio dell'assemblea, es. \"HH:MM\")
+- luogo_assemblea (luogo completo dell'assemblea)
+- tipo_assemblea (es: \"Ordinaria\", \"Straordinaria\", \"generale\")
+- presidente_assemblea (nome del presidente dell'assemblea)
+- segretario_assemblea (nome del segretario, se menzionato)
+- soci_presenti_raw (la porzione di testo che descrive i soci presenti e il capitale sociale rappresentato)
+- capitale_sociale_totale_str (il capitale sociale totale della società, se menzionato, es. \"10000.00\")
+- capitale_nominale_str (il valore nominale del capitale sociale rappresentato dai soci presenti, es. \"8000.00\")
+- percentuale_capitale_str (la percentuale del capitale sociale rappresentata dai soci presenti, es. \"80.00\" o \"80%\")
+- ordine_del_giorno_raw (la porzione di testo che elenca l'ordine del giorno)
+- punti_ordine_giorno (lista dei singoli punti all'ordine del giorno come stringhe)
+- delibere_raw (la porzione di testo che descrive le delibere prese)
+- allegati_raw (la porzione di testo che menziona eventuali allegati)
+- ora_chiusura_str (ora di chiusura dell'assemblea, es. \"HH:MM\", se menzionata)
+- note_verbale (eventuali altre note o informazioni rilevanti dal verbale)
+
+Testo del verbale:
+{text}
+
+Rispondi SOLO con il dizionario JSON, senza altro testo.
+"""
+
+
 class DocumentoGenericoProcessor(DocumentProcessor):
     """Processor for generic documents"""
     
@@ -584,6 +882,7 @@ class DocumentProcessorFactory:
             "riconoscimento": DocumentoRiconoscimentoProcessor,
             "fattura": FatturaProcessor,
             "contratto": ContrattoProcessor,
+            "verbale_assemblea": VerbaleAssembleaProcessor, # Aggiunto nuovo processore
             "generico": DocumentoGenericoProcessor
         }
         
@@ -594,4 +893,4 @@ class DocumentProcessorFactory:
     
     @staticmethod
     def get_available_types() -> List[str]:
-        return ["visura", "bilancio", "statuto", "riconoscimento", "fattura", "contratto", "generico"]
+        return ["visura", "bilancio", "statuto", "riconoscimento", "fattura", "contratto", "verbale_assemblea", "generico"] # Aggiunto nuovo tipo

@@ -14,6 +14,7 @@ if src_path not in sys.path:
 
 from document_templates import DocumentTemplate, DocumentTemplateFactory
 from common_data_handler import CommonDataHandler
+from base_verbale_template import BaseVerbaleTemplate
 from docx import Document
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -23,7 +24,7 @@ import streamlit as st
 import pandas as pd
 import re
 
-class VerbaleAssembleaIrregolareTemplate(DocumentTemplate):
+class VerbaleAssembleaIrregolareTemplate(BaseVerbaleTemplate):
     """Template per Verbale di Assemblea Irregolare dei Soci"""
     
     def get_template_name(self) -> str:
@@ -178,8 +179,8 @@ class VerbaleAssembleaIrregolareTemplate(DocumentTemplate):
         for socio in data.get('soci', []):
             if socio.get('nome', '').strip() and socio.get('presente', True):
                 nome = socio.get('nome', '')
-                quota_perc_str = socio.get('quota_percentuale', '0').replace('%', '').replace(',', '.').strip()
-                quota_euro_str = socio.get('quota_euro', '0').replace('€', '').replace('Euro', '').strip()
+                quota_perc_str = str(socio.get('quota_percentuale', '0')).replace('%', '').replace(',', '.').strip()
+                quota_euro_str = str(socio.get('quota_euro', '0')).replace('€', '').replace('Euro', '').strip()
                 tipo_partecipazione = socio.get('tipo_partecipazione', 'Diretto')
                 delegato = socio.get('delegato', '').strip()
                 tipo_soggetto = socio.get('tipo_soggetto', 'Persona Fisica')
@@ -215,8 +216,11 @@ class VerbaleAssembleaIrregolareTemplate(DocumentTemplate):
         # Gestione soci presenti
         if soci_presenti:
             # Se ci sono soci presenti, usa la percentuale calcolata
-            percentuale_effettiva = totale_quote_perc if totale_quote_perc > 0 else float(data.get('percentuale_presente', '0'))
-            lines.append(f"nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {totale_quote_euro:,.2f} pari al {percentuale_effettiva:.1f}% del Capitale Sociale:")
+            # Formatta i totali per la visualizzazione
+            formatted_total_quota_euro = f"{totale_quote_euro:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') # Formato italiano
+            formatted_total_quota_percentuale = f"{totale_quote_perc:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') # Formato italiano
+
+            lines.append(f"nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_total_quota_euro} pari al {formatted_total_quota_percentuale}% del Capitale Sociale:")
             
             for socio_info in soci_presenti:
                 nome = socio_info['nome']
@@ -244,6 +248,28 @@ class VerbaleAssembleaIrregolareTemplate(DocumentTemplate):
                     else:
                         lines.append(f"il Sig {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale")
             
+            # Calcolo e visualizzazione quote totali soci
+            total_quota_euro = 0.0
+            total_quota_percentuale = 0.0
+
+            for socio in soci_presenti:
+                try:
+                    quota_euro_str = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
+                    total_quota_euro += float(quota_euro_str)
+                except (ValueError, TypeError):
+                    pass # Ignora valori non numerici
+
+                try:
+                    quota_percentuale_str = str(socio.get('quota_percentuale', '0')).replace(',', '.')
+                    total_quota_percentuale += float(quota_percentuale_str)
+                except (ValueError, TypeError):
+                    pass # Ignora valori non numerici
+
+            # Formattazione per l'output italiano
+            formatted_total_quota_euro = f"{total_quota_euro:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            formatted_total_quota_percentuale = f"{total_quota_percentuale:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+            lines.append(f"- Soci presenti: {len(soci_presenti)} per un totale di Euro {formatted_total_quota_euro} ({formatted_total_quota_percentuale}% del capitale sociale)")
             lines.append("")
             lines.append("3 - che gli intervenuti sono legittimati alla presente assemblea;")
             lines.append("4 - che tutti gli intervenuti si dichiarano edotti sugli argomenti posti all'ordine del giorno.")
@@ -311,6 +337,9 @@ class VerbaleAssembleaIrregolareTemplate(DocumentTemplate):
     
     def _setup_document_styles(self, doc):
         """Configura gli stili del documento"""
+        # First call parent's method to setup all base styles
+        super()._setup_document_styles(doc)
+        
         # Imposta font di default
         style = doc.styles['Normal']
         style.font.name = 'Times New Roman'
@@ -607,9 +636,8 @@ class VerbaleAssembleaIrregolareTemplate(DocumentTemplate):
         doc.add_paragraph()
         doc.add_paragraph()
         
-        # Tabella per le firme
-        table = doc.add_table(rows=3, cols=2)
-        table.style = 'Table Grid'
+        # Tabella per le firme usando il metodo sicuro
+        table = self._create_table_with_style(doc, rows=3, cols=2)
         
         # Intestazioni
         table.cell(0, 0).text = "IL PRESIDENTE"
@@ -633,4 +661,4 @@ class VerbaleAssembleaIrregolareTemplate(DocumentTemplate):
 
 
 # Registra il template nel factory
-DocumentTemplateFactory.register_template("verbale_assemblea_irregolare", VerbaleAssembleaIrregolareTemplate) 
+DocumentTemplateFactory.register_template("verbale_assemblea_irregolare", VerbaleAssembleaIrregolareTemplate)

@@ -3,15 +3,66 @@ Modulo per la gestione standardizzata dei dati comuni a tutti i verbali di assem
 Questo modulo centralizza l'estrazione e il popolamento delle informazioni standard
 come dati aziendali, soci, amministratori, ecc.
 """
+# Added a comment to force reload
 
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
 from typing import Dict, List, Any, Optional
+
+# Modulo regex necessario per clean_percentage
+import re
 
 
 class CommonDataHandler:
     """Gestore centralizzato per i dati comuni a tutti i verbali"""
+    
+    # ============= HELPER FUNCTIONS =============
+    @staticmethod
+    def format_currency(value: Any) -> str:
+        """Formatta un valore come valuta in euro (formato italiano)"""
+        try:
+            # Converti in float, gestendo stringhe con separatori
+            if isinstance(value, str):
+                # Rimuovi eventuali punti (separatore migliaia) e sostituisci virgola con punto
+                value = value.replace('.', '').replace(',', '.')
+            num = float(value)
+            return f"€ {num:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+        except (ValueError, TypeError):
+            return str(value)  # Se non è convertibile, restituisci la rappresentazione stringa
+
+    @staticmethod
+    def format_percentage(value: Any) -> str:
+        """Formatta un valore come percentuale (con 2 decimali e segno %)"""
+        try:
+            num = float(value)
+            return f"{num:.2f}%"
+        except (ValueError, TypeError):
+            return str(value)
+
+    @staticmethod
+    def clean_percentage(value: Any) -> str:
+        """Pulisce una stringa di percentuale rimuovendo caratteri non numerici e correggendo doppi %%"""
+        if not isinstance(value, str):
+            value = str(value)
+        # Rimuovi spazi e caratteri non numerici tranne la virgola/punto e il segno di percento
+        cleaned = re.sub(r'[^\d.,%]', '', value)
+        # Sostituisci eventuali doppi %% con un solo %
+        cleaned = cleaned.replace('%%', '%')
+        # Se non c'è il segno di percento, aggiungilo alla fine
+        if '%' not in cleaned:
+            cleaned += '%'
+        return cleaned
+
+    @staticmethod
+    def validate_numeric(value: Any) -> bool:
+        """Verifica se il valore è numerico (intero, float o stringa numerica)"""
+        try:
+            float(value)
+            return True
+        except (ValueError, TypeError):
+            return False
+    # ============= FINE HELPER FUNCTIONS =============
     
     @staticmethod
     def extract_and_populate_company_data(extracted_data: dict) -> dict:
@@ -70,10 +121,34 @@ class CommonDataHandler:
         col1, col2 = st.columns(2)
         with col1:
             form_data["data_assemblea"] = st.date_input("Data assemblea", today)
-            form_data["ora_inizio"] = st.text_input("Ora inizio assemblea", "09:00")
+            default_ora_inizio_str = extracted_data.get("ora_assemblea_str", "09:00") # Tentativo di pre-compilazione
+            ora_inizio_str = st.text_input("Ora inizio assemblea", default_ora_inizio_str)
+            try:
+                form_data["ora_inizio"] = datetime.strptime(ora_inizio_str, '%H:%M').time()
+            except ValueError:
+                st.warning(f"Formato ora '{ora_inizio_str}' non valido. Utilizzato valore di default '09:00'.")
+                form_data["ora_inizio"] = datetime.time(9, 0) # Valore di default se parsing fallisce
         with col2:
             form_data["luogo_assemblea"] = st.text_input("Luogo assemblea", extracted_data.get("sede_legale", ""))
-            form_data["ora_fine"] = st.text_input("Ora fine assemblea", "10:00")
+            form_data["ora_chiusura"] = st.text_input("Ora fine assemblea", extracted_data.get("ora_chiusura_str", "10:00")) # Considerare pre-compilazione
+
+        # Dati Capitale Sociale
+        st.subheader("💰 Dati Capitale Sociale")
+        col_cap1, col_cap2 = st.columns(2)
+        with col_cap1:
+            default_capitale_nominale_str = extracted_data.get("capitale_nominale_str", "")
+            form_data["capitale_nominale_str"] = st.text_input(
+                "Capitale Sociale Nominale (€)", 
+                default_capitale_nominale_str,
+                help="Valore nominale del capitale sociale rappresentato dai presenti."
+            )
+        with col_cap2:
+            default_percentuale_capitale_str = extracted_data.get("percentuale_capitale_str", "")
+            form_data["percentuale_capitale_str"] = st.text_input(
+                "Percentuale Capitale Sociale Presente (%)", 
+                default_percentuale_capitale_str,
+                help="Percentuale del capitale sociale rappresentato dai presenti."
+            )
         
         # Configurazioni assemblea standardizzate
         col1, col2 = st.columns(2)
@@ -158,6 +233,11 @@ class CommonDataHandler:
         )
         
         form_data["soci"] = df_soci_edited.to_dict("records")
+
+        # Assicura che le quote siano stringhe, anche vuote, per evitare problemi con None
+        for socio in form_data["soci"]:
+            socio['quota_percentuale'] = str(socio.get('quota_percentuale', '')) if socio.get('quota_percentuale') is not None else ''
+            socio['quota_euro'] = str(socio.get('quota_euro', '')) if socio.get('quota_euro') is not None else ''
         
         # Amministratori - standardizzato per tutti i verbali
         st.subheader("👨‍💼 Organi Sociali")
@@ -237,20 +317,24 @@ class CommonDataHandler:
                     "rappresentante_legale": ""}]
         
         # Assicurati che tutte le colonne necessarie esistano
-        standard_keys = ['tipo_partecipazione', 'delegato', 'presente', 'tipo_soggetto', 'rappresentante_legale']
-        default_values = {
+        standard_keys_with_defaults = {
             'tipo_partecipazione': 'Diretto',
             'delegato': '',
             'presente': True,
             'tipo_soggetto': 'Persona Fisica',
-            'rappresentante_legale': ''
+            'rappresentante_legale': '',
+            'quota_percentuale': '',
+            'quota_euro': ''
         }
         
         for socio in soci_cleaned:
             if isinstance(socio, dict):  # Doppio controllo di sicurezza
-                for key in standard_keys:
+                for key, default_value in standard_keys_with_defaults.items():
                     if key not in socio:
-                        socio[key] = default_values[key]
+                        socio[key] = default_value
+                    # Assicura che anche se la chiave esiste, non sia None, per compatibilità con st.data_editor
+                    elif socio[key] is None:
+                        socio[key] = default_value
         
         return soci_cleaned
     
@@ -340,4 +424,4 @@ class CommonDataHandler:
         if not form_data.get("segretario", "").strip():
             errors.append("Il segretario deve essere specificato")
         
-        return errors 
+        return errors
