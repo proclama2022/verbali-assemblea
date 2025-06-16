@@ -12,9 +12,34 @@ if current_dir not in sys.path:
     sys.path.append(current_dir)
 
 from document_templates import DocumentTemplate
+from common_data_handler import CommonDataHandler  # Importa il gestore dati
 
 class BaseVerbaleTemplate(DocumentTemplate):
     """Base template semplificato per tutti i verbali di assemblea"""
+    
+    def get_form_fields(self, extracted_data: dict) -> dict:
+        """Crea i campi del form per i dati comuni usando il CommonDataHandler.
+        
+        Questo metodo centralizza la creazione dei widget di Streamlit per tutti
+        i dati standard (società, assemblea, partecipanti, organi di controllo).
+        I template specifici possono estendere questo metodo per aggiungere
+        i propri campi univoci.
+        """
+        form_data = {}
+
+        # Usa i metodi del CommonDataHandler per popolare il form
+        form_data.update(CommonDataHandler.extract_and_populate_company_data(extracted_data))
+        form_data.update(CommonDataHandler.extract_and_populate_assembly_data(extracted_data))
+        form_data.update(CommonDataHandler.extract_and_populate_participants_data(extracted_data))
+        
+        # Aggiunge i campi per l'organo di controllo e il revisore
+        if form_data.get("collegio_sindacale"):
+            form_data.update(CommonDataHandler.extract_and_populate_organo_controllo(extracted_data))
+        
+        if form_data.get("revisore"):
+            form_data.update(CommonDataHandler.extract_and_populate_revisore(extracted_data))
+
+        return form_data
     
     def _setup_document_styles(self, doc):
         """Configura gli stili base del documento"""
@@ -232,3 +257,56 @@ class BaseVerbaleTemplate(DocumentTemplate):
             # Fallback di emergenza: crea comunque la tabella senza stile specifico
             table = doc.add_table(rows=rows, cols=cols)
         return table
+
+    # ------------------------------------------------------------------
+    # Helper comune: Collegio Sindacale / Revisore tra i partecipanti
+    # ------------------------------------------------------------------
+    def _add_organi_controllo_paragraphs(self, doc: Document, data: dict):
+        """Aggiunge, in fondo all'elenco dei partecipanti, l'organo di controllo
+        (Collegio Sindacale / Sindaco Unico) e l'eventuale revisore, se presenti.
+        È sufficiente chiamare questo metodo all'interno di _add_participants_section
+        dei vari template.
+        """
+        if data.get("include_collegio_sindacale"):
+            tipo_oc = data.get("tipo_organo_controllo", "Collegio Sindacale")
+            sindaci = [s for s in data.get("sindaci", []) if s.get("presente")]
+            if tipo_oc == "Collegio Sindacale" and sindaci:
+                p = doc.add_paragraph("per il Collegio Sindacale:")
+                for s in sindaci:
+                    doc.add_paragraph(f"- {s.get('nome', '[NOME]')} {s.get('carica', '')}")
+            elif tipo_oc == "Sindaco Unico" and sindaci:
+                doc.add_paragraph(f"il Sindaco Unico {sindaci[0].get('nome', '[NOME]')}")
+
+        if data.get("include_revisore"):
+            nome_rev = data.get("nome_revisore", "[NOME REVISORE]")
+            doc.add_paragraph(f"il revisore contabile Dott. {nome_rev}")
+
+    # ------------------------------------------------------------------
+    # Helper: formattazione riga socio (testo) riutilizzabile nei template
+    # ------------------------------------------------------------------
+    def _format_socio_line(self,
+                           nome: str,
+                           quota_euro: str,
+                           quota_perc: str,
+                           tipo_partecipazione: str = "Diretto",
+                           delegato: str = "",
+                           tipo_soggetto: str = "Persona Fisica",
+                           rappresentante_legale: str = "") -> str:
+        """Restituisce una stringa descrittiva di un socio, usata nelle anteprime.
+
+        Parametri in ingresso già puliti (stringhe).  Nessuna formattazione numerica.
+        """
+        if tipo_partecipazione == "Delegato" and delegato:
+            if tipo_soggetto == "Società":
+                line = f"il Sig. {delegato} delegato della società {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+            else:
+                line = f"il Sig. {delegato} delegato del socio {nome} recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+        else:
+            if tipo_soggetto == "Società":
+                if rappresentante_legale:
+                    line = f"la società {nome} nella persona del legale rappresentante {rappresentante_legale} recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                else:
+                    line = f"la società {nome} recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+            else:
+                line = f"il Sig. {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+        return line

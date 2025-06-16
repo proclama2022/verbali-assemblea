@@ -38,104 +38,33 @@ class VerbaleCorrezioniTemplate(BaseVerbaleTemplate):
         ]
     
     def get_form_fields(self, extracted_data: dict) -> dict:
-        """Genera i campi del form per Streamlit utilizzando il CommonDataHandler"""
-        form_data = {}
-        
-        # Utilizza il CommonDataHandler per i dati standard
-        # Dati azienda standardizzati
-        form_data.update(CommonDataHandler.extract_and_populate_company_data(extracted_data))
-        
-        # Dati assemblea standardizzati
-        form_data.update(CommonDataHandler.extract_and_populate_assembly_data(extracted_data))
-        
-        # Campi specifici per correzioni/precisazioni
-        st.subheader("📋 Configurazioni Specifiche Correzioni/Precisazioni")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            form_data["ruolo_presidente"] = st.selectbox("Ruolo del presidente", 
-                                                        CommonDataHandler.get_standard_ruoli_presidente())
-            form_data["data_verbale_precedente"] = st.date_input("Data del verbale da correggere", 
-                                                               value=CommonDataHandler.get_default_date_chiusura())
-        with col2:
-            form_data["tipo_correzione"] = st.selectbox("Tipo di correzione", 
-                                                       ["Errore materiale", "Precisazione", "Integrazione"])
-            form_data["modalita_assemblea"] = st.selectbox("Modalità assemblea", 
-                                                          ["In presenza", "Audioconferenza", "Mista"])
-        
-        # Partecipanti standardizzati usando il CommonDataHandler
-        participants_data = CommonDataHandler.extract_and_populate_participants_data(
-            extracted_data, 
-            unique_key_suffix="correzioni"
+        """Genera i campi del form per Streamlit."""
+        # Chiama il metodo della classe base per ottenere i campi comuni
+        form_data = super().get_form_fields(extracted_data)
+
+        st.subheader("✍️ Dettagli della Correzione")
+
+        # Campi specifici del template
+        form_data['documento_da_correggere'] = st.text_input(
+            "Documento da Correggere",
+            "es. Verbale di assemblea del...",
+            key="documento_da_correggere"
         )
-        form_data.update(participants_data)
         
-        # Ordine del giorno specifico per correzioni
-        st.subheader("📋 Ordine del Giorno")
-        default_odg = f"Precisazioni relative al verbale di assemblea del {form_data['data_verbale_precedente'].strftime('%d/%m/%Y')}"
-        form_data["ordine_giorno"] = st.text_area("Ordine del giorno", 
-                                                 default_odg, height=80)
+        form_data['errore_da_correggere'] = st.text_area(
+            "Errore Materiale da Correggere",
+            "Indicare qui l'errore presente nel documento originale.",
+            height=150,
+            key="errore_da_correggere"
+        )
         
-        # Sezione correzioni
-        st.subheader("✏️ Correzioni da Apportare")
-        
-        # Gestione dinamica delle correzioni
-        if 'num_correzioni' not in st.session_state:
-            st.session_state.num_correzioni = 1
-        
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            st.write("Specifica le correzioni da apportare al verbale precedente:")
-        with col2:
-            # Use number input instead of buttons to avoid form conflicts
-            new_num = st.number_input("Numero correzioni", 
-                                    min_value=1, 
-                                    max_value=10, 
-                                    value=st.session_state.num_correzioni,
-                                    key="num_correzioni_input")
-            if new_num != st.session_state.num_correzioni:
-                st.session_state.num_correzioni = new_num
-        
-        correzioni = []
-        for i in range(st.session_state.num_correzioni):
-            st.write(f"**Correzione {i+1}:**")
-            col1, col2 = st.columns(2)
-            with col1:
-                testo_errato = st.text_input(f"Testo errato {i+1}", 
-                                           key=f"testo_errato_{i}",
-                                           placeholder="Inserisci il testo da correggere...")
-            with col2:
-                testo_corretto = st.text_input(f"Testo corretto {i+1}", 
-                                             key=f"testo_corretto_{i}",
-                                             placeholder="Inserisci il testo corretto...")
-            
-            if testo_errato and testo_corretto:
-                correzioni.append({
-                    "testo_errato": testo_errato,
-                    "testo_corretto": testo_corretto
-                })
-        
-        form_data["correzioni"] = correzioni
-        
-        # Delibera della precedente assemblea
-        st.subheader("📝 Delibera dell'Assemblea Precedente")
-        form_data["delibera_precedente"] = st.text_area("Descrivi brevemente cosa fu deliberato nell'assemblea precedente", 
-                                                       height=100,
-                                                       placeholder="Es: ha deliberato l'approvazione del bilancio...")
-        
-        # Traduzione (se necessaria)
-        st.subheader("🌐 Traduzione")
-        form_data["richiede_traduzione"] = st.checkbox("È necessaria traduzione per partecipanti stranieri")
-        if form_data["richiede_traduzione"]:
-            col1, col2 = st.columns(2)
-            with col1:
-                form_data["partecipante_straniero"] = st.text_input("Nome partecipante straniero")
-                form_data["lingua_straniera"] = st.selectbox("Lingua di traduzione", 
-                                                           ["Inglese", "Francese", "Tedesco", "Spagnolo", "Altro"])
-            with col2:
-                if form_data["lingua_straniera"] == "Altro":
-                    form_data["lingua_altro"] = st.text_input("Specifica lingua")
-        
+        form_data['testo_corretto'] = st.text_area(
+            "Testo Corretto",
+            "Indicare qui il testo come dovrebbe correttamente apparire.",
+            height=150,
+            key="testo_corretto"
+        )
+
         return form_data
     
     def show_preview(self, form_data: dict):
@@ -193,10 +122,37 @@ Assume la presidenza ai sensi dell'art. [...] dello statuto sociale il Sig. **{d
    - l'{data.get('ruolo_presidente', 'Amministratore Unico')} nella persona del suddetto Presidente Sig. **{data.get('presidente', '[PRESIDENTE]')}**
 """
         
+        # Collegio sindacale se presente
+        if data.get('include_collegio_sindacale', False):
+            tipo_organo_controllo = data.get('tipo_organo_controllo', 'Collegio Sindacale')
+            
+            if tipo_organo_controllo == 'Collegio Sindacale':
+                sindaci = data.get('sindaci', [])
+                sindaci_presenti = [s for s in sindaci if s.get('presente')]
+                if sindaci_presenti:
+                    preview += "\n   - per il Collegio Sindacale:\n"
+                    for sindaco in sindaci_presenti:
+                        carica = sindaco.get('carica', 'Sindaco Effettivo')
+                        nome_sindaco = sindaco.get('nome', '')
+                        if nome_sindaco:
+                            preview += f"     - il Dott. {nome_sindaco} - {carica}\n"
+            else: # Sindaco Unico
+                sindaci = data.get('sindaci', [])
+                if sindaci and sindaci[0].get('nome'):
+                    sindaco_unico_nome = sindaci[0].get('nome')
+                    preview += f"\n   - il Sindaco Unico nella persona del Sig. {sindaco_unico_nome}"
+
         # Sezione partecipanti
-        soci = data.get('soci', [])
-        if soci:
-            # Calcola totali euro e percentuale
+        soci_presenti = data.get('soci_presenti', [])
+        soci_assenti = data.get('soci_assenti', [])
+        
+        # Fallback per mantenere compatibilità se le nuove chiavi non ci sono
+        if not soci_presenti and not soci_assenti and 'soci' in data:
+            soci_presenti = [s for s in data.get('soci', []) if s.get('presente', True)]
+            soci_assenti = [s for s in data.get('soci', []) if not s.get('presente', True)]
+
+        if soci_presenti:
+            # Calcola totali euro e percentuale solo sui presenti
             totale_euro = 0.0
             totale_perc = 0.0
             capitale_raw = str(data.get('capitale_sociale', '0')).replace('.', '').replace(',', '.')
@@ -205,7 +161,7 @@ Assume la presidenza ai sensi dell'art. [...] dello statuto sociale il Sig. **{d
             except ValueError:
                 capitale_float = 0.0
 
-            for socio in soci:
+            for socio in soci_presenti:
                 if isinstance(socio, dict):
                     # somma euro
                     euro_raw = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
@@ -232,7 +188,7 @@ Assume la presidenza ai sensi dell'art. [...] dello statuto sociale il Sig. **{d
             formatted_perc = CommonDataHandler.format_percentage(totale_perc)
 
             preview += f"\n   - nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_euro} pari al {formatted_perc} del Capitale Sociale:\n"
-            for socio in soci:
+            for socio in soci_presenti:
                 if not isinstance(socio, dict) or not socio.get('nome'):
                     continue
                 nome = socio.get('nome')
@@ -268,6 +224,12 @@ Assume la presidenza ai sensi dell'art. [...] dello statuto sociale il Sig. **{d
                         line = f"il Sig. {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
 
                 preview += f"     - {line}\n"
+        
+        if soci_assenti:
+            preview += "\n   - risultano invece assenti i seguenti soci:\n"
+            for socio in soci_assenti:
+                if isinstance(socio, dict) and socio.get('nome'):
+                    preview += f"     - il Sig. {socio.get('nome')}\n"
         
         preview += f"""
 3. che gli intervenuti sono legittimati alla presente assemblea;
@@ -443,20 +405,45 @@ _________________                    _________________
     def _add_participants_section(self, doc, data):
         """Aggiunge la sezione dei partecipanti"""
         presidente_text = f"""Assume la presidenza ai sensi dell'art. [...] dello statuto sociale il Sig. {data.get('presidente', '[PRESIDENTE]')} {data.get('ruolo_presidente', 'Amministratore Unico')}, il quale dichiara e constata:"""
-        
         doc.add_paragraph(presidente_text)
         doc.add_paragraph()
         
-        # Dichiarazioni del presidente
         doc.add_paragraph("1 - che (come indicato anche nell'avviso di convocazione ed in conformità alle previsioni dell'art. [...] dello statuto sociale) l'intervento all'assemblea può avvenire anche in audioconferenza")
         doc.add_paragraph()
         
         participants_p = doc.add_paragraph("2 - che sono presenti/partecipano all'assemblea:")
         participants_p.add_run(f"\nl'{data.get('ruolo_presidente', 'Amministratore Unico')} nella persona del suddetto Presidente Sig. {data.get('presidente', '[PRESIDENTE]')}")
         
+        # Aggiungi Collegio Sindacale se presente
+        if data.get('include_collegio_sindacale', False):
+            tipo_organo_controllo = data.get('tipo_organo_controllo', 'Collegio Sindacale')
+            
+            if tipo_organo_controllo == 'Collegio Sindacale':
+                sindaci = data.get('sindaci', [])
+                sindaci_presenti = [s for s in sindaci if s.get('presente')]
+                if sindaci_presenti:
+                    participants_p.add_run("\nper il Collegio Sindacale:")
+                    for sindaco in sindaci_presenti:
+                        carica = sindaco.get('carica', 'Sindaco Effettivo')
+                        nome_sindaco = sindaco.get('nome', '')
+                        if nome_sindaco:
+                            participants_p.add_run(f"\nil Dott. {nome_sindaco} - {carica}")
+            else: # Sindaco Unico
+                sindaci = data.get('sindaci', [])
+                if sindaci and sindaci[0].get('nome'):
+                    sindaco_unico_nome = sindaci[0].get('nome')
+                    participants_p.add_run(f"\nil Sindaco Unico nella persona del Sig. {sindaco_unico_nome}")
+
         # Aggiungi soci
-        soci = data.get('soci', [])
-        if soci:
+        soci_presenti = data.get('soci_presenti', [])
+        soci_assenti = data.get('soci_assenti', [])
+        
+        # Fallback per mantenere compatibilità
+        if not soci_presenti and not soci_assenti and 'soci' in data:
+            soci_presenti = [s for s in data.get('soci', []) if s.get('presente', True)]
+            soci_assenti = [s for s in data.get('soci', []) if not s.get('presente', True)]
+
+        if soci_presenti:
             # Calcola totali euro e percentuale
             totale_euro = 0.0
             totale_perc = 0.0
@@ -466,15 +453,13 @@ _________________                    _________________
             except ValueError:
                 capitale_float = 0.0
 
-            for socio in soci:
+            for socio in soci_presenti:
                 if isinstance(socio, dict):
-                    # somma euro
                     euro_raw = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
                     try:
                         totale_euro += float(euro_raw or 0)
                     except ValueError:
                         pass
-                    # somma percentuale se presente, altrimenti calcola
                     perc_raw = socio.get('quota_percentuale', '')
                     if perc_raw:
                         try:
@@ -494,15 +479,13 @@ _________________                    _________________
 
             participants_p.add_run(f"\nnonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_euro} pari al {formatted_perc} del Capitale Sociale:")
 
-            # Elenco dettagliato
-            for socio in soci:
+            for socio in soci_presenti:
                 if not isinstance(socio, dict) or not socio.get('nome'):
                     continue
                 nome = socio.get('nome')
                 quota_euro = CommonDataHandler.format_currency(socio.get('quota_euro', '0'))
                 quota_perc = socio.get('quota_percentuale', '')
                 if not quota_perc:
-                    # calcola
                     try:
                         euro_val = float(str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.'))
                         quota_perc = CommonDataHandler.format_percentage(euro_val / capitale_float * 100) if capitale_float else '[%]'
@@ -531,6 +514,12 @@ _________________                    _________________
                         line = f"il Sig. {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
 
                 participants_p.add_run(f"\n{line}")
+
+        if soci_assenti:
+            assenti_p = doc.add_paragraph("   - risultano invece assenti i seguenti soci:")
+            for socio in soci_assenti:
+                if isinstance(socio, dict) and socio.get('nome'):
+                    assenti_p.add_run(f"\n     - il Sig. {socio.get('nome')}")
         
         doc.add_paragraph()
     

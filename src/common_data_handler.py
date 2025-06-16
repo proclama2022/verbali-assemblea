@@ -21,15 +21,22 @@ class CommonDataHandler:
     @staticmethod
     def format_currency(value: Any) -> str:
         """Formatta un valore come valuta in euro (formato italiano)"""
+        # Gestione valori null o stringhe vuote
+        if value is None or (isinstance(value, str) and value.strip() == ""):
+            return "[CAPITALE]"
+
         try:
-            # Converti in float, gestendo stringhe con separatori
+            # Se è una stringa, normalizza separatori decimali
             if isinstance(value, str):
-                # Rimuovi eventuali punti (separatore migliaia) e sostituisci virgola con punto
-                value = value.replace('.', '').replace(',', '.')
-            num = float(value)
+                clean_val = value.replace('.', '').replace(',', '.')
+                num = float(clean_val)
+            else:
+                num = float(value)
             return f"€ {num:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
         except (ValueError, TypeError):
-            return str(value)  # Se non è convertibile, restituisci la rappresentazione stringa
+            # Se non convertibile, restituisci la stringa originale o placeholder
+            val_str = str(value).strip()
+            return val_str if val_str else "[CAPITALE]"
 
     @staticmethod
     def format_percentage(value: Any) -> str:
@@ -86,6 +93,9 @@ class CommonDataHandler:
         with col3:
             form_data["capitale_versato"] = st.text_input("Capitale versato (€)", capitale_data["versato"])
         
+        # Retrocompatibilità: imposta 'capitale_sociale' con il valore deliberato se non presente
+        form_data["capitale_sociale"] = form_data.get("capitale_deliberato", "")
+        
         return form_data
     
     @staticmethod
@@ -132,23 +142,24 @@ class CommonDataHandler:
             form_data["luogo_assemblea"] = st.text_input("Luogo assemblea", extracted_data.get("sede_legale", ""))
             form_data["ora_chiusura"] = st.text_input("Ora fine assemblea", extracted_data.get("ora_chiusura_str", "10:00")) # Considerare pre-compilazione
 
-        # Dati Capitale Sociale
-        st.subheader("💰 Dati Capitale Sociale")
-        col_cap1, col_cap2 = st.columns(2)
-        with col_cap1:
-            default_capitale_nominale_str = extracted_data.get("capitale_nominale_str", "")
-            form_data["capitale_nominale_str"] = st.text_input(
-                "Capitale Sociale Nominale (€)", 
-                default_capitale_nominale_str,
-                help="Valore nominale del capitale sociale rappresentato dai presenti."
-            )
-        with col_cap2:
-            default_percentuale_capitale_str = extracted_data.get("percentuale_capitale_str", "")
-            form_data["percentuale_capitale_str"] = st.text_input(
-                "Percentuale Capitale Sociale Presente (%)", 
-                default_percentuale_capitale_str,
-                help="Percentuale del capitale sociale rappresentato dai presenti."
-            )
+        # Dati Capitale Sociale (opzionale – nascosti di default)
+        with st.expander("💰 Dati Capitale Sociale (opzionali)", expanded=False):
+            st.info("Compila questi campi solo se non possiedi l'elenco soci con le relative quote.")
+            col_cap1, col_cap2 = st.columns(2)
+            with col_cap1:
+                default_capitale_nominale_str = extracted_data.get("capitale_nominale_str", "")
+                form_data["capitale_nominale_str"] = st.text_input(
+                    "Capitale Sociale Nominale (€)", 
+                    default_capitale_nominale_str,
+                    help="Valore nominale del capitale sociale rappresentato dai presenti."
+                )
+            with col_cap2:
+                default_percentuale_capitale_str = extracted_data.get("percentuale_capitale_str", "")
+                form_data["percentuale_capitale_str"] = st.text_input(
+                    "Percentuale Capitale Sociale Presente (%)", 
+                    default_percentuale_capitale_str,
+                    help="Percentuale del capitale sociale rappresentato dai presenti."
+                )
         
         # Configurazioni assemblea standardizzate
         col1, col2 = st.columns(2)
@@ -177,6 +188,42 @@ class CommonDataHandler:
                                                       help="Inserire il nome del revisore se presente")
         else:
             form_data["nome_revisore"] = ""
+        
+        # --------------------------------------------------------
+        # Alias di compatibilità tra diversi template
+        # --------------------------------------------------------
+        # Alcuni template fanno riferimento ai campi
+        # `include_collegio_sindacale`, `collegio_sindacale_presente`
+        # e `include_revisore`.  Qui creiamo alias coerenti così che
+        # la spunta fatta dall'utente venga riconosciuta da tutti i
+        # template senza doverli modificare uno ad uno.
+        # --- Collegio Sindacale --------------------------------------------------
+        # Se l'utente spunta la casella globale "Collegio sindacale presente"
+        # (campo `collegio_sindacale`) la propaghiamo agli alias utilizzati nei
+        # vari template.  Vice-versa, se un template specifico definisce la
+        # propria checkbox `include_collegio_sindacale`, sincronizziamo a
+        # ritroso così che i dati rimangano coerenti.
+        if "include_collegio_sindacale" in form_data:
+            # Valore definito in un template specifico
+            form_data["collegio_sindacale"] = form_data["include_collegio_sindacale"]
+        else:
+            # Alias forward dalla checkbox standard
+            form_data["include_collegio_sindacale"] = form_data.get("collegio_sindacale", False)
+
+        # Alias storico usato in certi template
+        form_data["collegio_sindacale_presente"] = form_data.get("include_collegio_sindacile", form_data.get("include_collegio_sindacale", False))
+
+        # --- Revisore ------------------------------------------------------------
+        if "include_revisore" in form_data:
+            form_data["revisore"] = form_data["include_revisore"]
+        else:
+            form_data["include_revisore"] = form_data.get("revisore", False)
+        
+        # Se è presente il revisore e non è stato specificato il nome
+        # inseriamo un placeholder per evitare stringhe vuote nei
+        # template che lo richiedono.
+        if form_data.get("include_revisore") and not form_data.get("nome_revisore"):
+            form_data["nome_revisore"] = "[NOME REVISORE]"
         
         return form_data
     
@@ -232,8 +279,13 @@ class CommonDataHandler:
             key=f"soci_editor_{unique_key_suffix}"
         )
         
-        form_data["soci"] = df_soci_edited.to_dict("records")
+        all_soci = df_soci_edited.to_dict("records")
+        form_data["soci"] = all_soci
 
+        # Dividi i soci in presenti e assenti per una gestione separata nei template
+        form_data["soci_presenti"] = [s for s in all_soci if s.get("presente")]
+        form_data["soci_assenti"] = [s for s in all_soci if not s.get("presente")]
+        
         # Assicura che le quote siano stringhe, anche vuote, per evitare problemi con None
         for socio in form_data["soci"]:
             socio['quota_percentuale'] = str(socio.get('quota_percentuale', '')) if socio.get('quota_percentuale') is not None else ''
@@ -425,3 +477,103 @@ class CommonDataHandler:
             errors.append("Il segretario deve essere specificato")
         
         return errors
+
+    @staticmethod
+    def extract_and_populate_organo_controllo(extracted_data: dict, unique_key_suffix: str = "") -> dict:
+        """Gestisce Collegio Sindacale / Sindaco Unico.
+
+        • Se la visura (`extracted_data`) contiene la chiave 'sindaci', la casella
+          "Collegio Sindacale presente" viene spuntata di default e il DataFrame
+          è pre-compilato.
+        • L'utente può comunque modificare / aggiungere nominativi.
+        • Ritorna nel dizionario:  include_collegio_sindacale, tipo_organo_controllo,
+          sindaci (lista di dict).
+        """
+        import pandas as _pd
+        form_data = {}
+
+        sindaci_visura = extracted_data.get("sindaci", []) or []
+
+        default_include_cs = bool(sindaci_visura)
+        form_data["include_collegio_sindacale"] = st.checkbox("Collegio Sindacale presente", value=default_include_cs, key=f"cs_checkbox_{unique_key_suffix}")
+
+        if not form_data["include_collegio_sindacile" if False else "include_collegio_sindacale"]:
+            form_data["sindaci"] = []
+            return form_data
+
+        st.subheader("🔍 Collegio Sindacale / Sindaco Unico")
+        tipo_default = "Collegio Sindacale" if len(sindaci_visura) != 1 else "Sindaco Unico"
+        form_data["tipo_organo_controllo"] = st.selectbox("Tipo organo di controllo", ["Collegio Sindacale", "Sindaco Unico"], index=0 if tipo_default=="Collegio Sindacale" else 1, key=f"tipo_oc_{unique_key_suffix}")
+
+        # Prepara dati iniziali
+        if sindaci_visura:
+            sindaci_data = [
+                {
+                    "nome": s.get("nome", ""),
+                    "carica": s.get("carica", "Sindaco Effettivo"),
+                    "presente": True
+                } for s in sindaci_visura
+            ]
+        else:
+            # placeholder vuoti
+            if form_data["tipo_organo_controllo"] == "Collegio Sindacale":
+                sindaci_data = [
+                    {"nome": "", "carica": "Presidente", "presente": True},
+                    {"nome": "", "carica": "Sindaco Effettivo", "presente": True},
+                    {"nome": "", "carica": "Sindaco Effettivo", "presente": True},
+                ]
+            else:
+                sindaci_data = [{"nome": "", "carica": "Sindaco Unico", "presente": True}]
+
+        df = _pd.DataFrame(sindaci_data)
+        column_config = {
+            "presente": st.column_config.CheckboxColumn("Presente"),
+            "nome": st.column_config.TextColumn("Nome", required=True),
+            "carica": st.column_config.SelectboxColumn(
+                "Carica",
+                options=["Presidente", "Sindaco Effettivo", "Sindaco Supplente", "Sindaco Unico"],
+                default="Sindaco Effettivo"
+            )
+        }
+        df_edit = st.data_editor(df, use_container_width=True, num_rows="dynamic", column_config=column_config, key=f"sindaci_editor_{unique_key_suffix}")
+
+        form_data["sindaci"] = df_edit.to_dict("records")
+        return form_data
+
+    # ------------------------------------------------------------------
+    # Revisore / Società di revisione
+    # ------------------------------------------------------------------
+    @staticmethod
+    def extract_and_populate_revisore(extracted_data: dict, unique_key_suffix: str = "") -> dict:
+        """Popola i dati relativi al revisore (persona fisica o società).
+
+        La visura camerale, quando presente, viene mappata su:
+            extracted_data['revisore']   -> persona fisica (dict con 'nome')
+            extracted_data['societa_revisione'] -> società di revisione (dict con 'denominazione')
+
+        Ritorna:
+            include_revisore  (bool)
+            nome_revisore     (str)
+        """
+        form_data = {}
+
+        visura_revisore = extracted_data.get("revisore") or {}
+        visura_soc_rev  = extracted_data.get("societa_revisione") or {}
+
+        if visura_revisore:
+            default_nome = visura_revisore.get("nome", "")
+        elif visura_soc_rev:
+            default_nome = visura_soc_rev.get("denominazione", "")
+        else:
+            default_nome = ""
+
+        default_include = bool(default_nome)
+
+        form_data["include_revisore"] = st.checkbox("Revisore legale / Società di revisione presente", value=default_include, key=f"revisore_checkbox_{unique_key_suffix}")
+
+        if form_data["include_revisore"]:
+            form_data["nome_revisore"] = st.text_input("Nome Revisore o Società di Revisione", value=default_nome, key=f"nome_revisore_{unique_key_suffix}")
+        else:
+            form_data["nome_revisore"] = ""
+
+        return form_data

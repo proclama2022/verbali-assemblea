@@ -38,126 +38,61 @@ class VerbaleNominaCollegioSindacaleTemplate(BaseVerbaleTemplate):
         ]
     
     def get_form_fields(self, extracted_data: dict) -> dict:
-        """Genera i campi del form per Streamlit utilizzando il CommonDataHandler"""
-        form_data = {}
-        
-        # Utilizza il CommonDataHandler per i dati standard
-        # Dati azienda standardizzati
-        form_data.update(CommonDataHandler.extract_and_populate_company_data(extracted_data))
-        
-        # Dati assemblea standardizzati
-        form_data.update(CommonDataHandler.extract_and_populate_assembly_data(extracted_data))
-        
-        # Campi specifici per nomina collegio sindacale
-        st.subheader("🏛️ Configurazioni Specifiche Nomina Collegio Sindacale")
-        
+        """Genera i campi del form per Streamlit."""
+        # Chiama il metodo della classe base per ottenere i campi comuni
+        form_data = super().get_form_fields(extracted_data)
+
+        st.subheader("🏛️ Configurazioni Nomina Collegio Sindacale")
+
+        # Campi specifici del template
         col1, col2 = st.columns(2)
         with col1:
-            form_data["ruolo_presidente"] = st.selectbox("Ruolo del presidente", 
-                                                        CommonDataHandler.get_standard_ruoli_presidente())
-            form_data["tipo_assemblea"] = st.selectbox("Tipo di assemblea", 
-                                                      ["regolarmente convocata", "totalitaria"])
+            form_data["tipo_organo_controllo"] = st.selectbox(
+                "Tipo Organo di Controllo",
+                ["Collegio Sindacale", "Sindaco Unico"],
+                key="tipo_organo_controllo_nomina_cs"
+            )
         with col2:
-            form_data["modalita_partecipazione"] = st.checkbox("Partecipazione in audioconferenza consentita", value=True)
-            form_data["motivo_nomina"] = st.selectbox("Motivo della nomina", [
-                "sopravvenuta scadenza del Collegio Sindacale in carica",
-                "superamento dei limiti dell'art. 2477 C.C.",
-                "prima nomina per nuova società",
-                "dimissioni del collegio precedente",
-                "altro (specificare nelle note)"
-            ])
+            form_data['durata_incarico'] = st.selectbox(
+                "Durata dell'incarico",
+                ["Tre esercizi", "Un esercizio", "Altro"],
+                key="durata_incarico_cs"
+            )
+            
+        # Dati dei nuovi sindaci
+        st.subheader("Nuovi Sindaci da Nominare")
+        if form_data.get("tipo_organo_controllo") == "Collegio Sindacale":
+            num_sindaci = 3
+            st.info("Configurazione per Collegio Sindacale (1 Presidente, 2 Sindaci effettivi)")
+        else:
+            num_sindaci = 1
+            st.info("Configurazione per Sindaco Unico")
+            
+        nuovi_sindaci = []
+        for i in range(num_sindaci):
+            ruolo = "Presidente" if i == 0 and num_sindaci > 1 else ("Sindaco Effettivo" if num_sindaci > 1 else "Sindaco Unico")
+            st.markdown(f"**{ruolo}**")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                nome = st.text_input(f"Nome e Cognome", key=f"sindaco_nome_{i}_nomina_cs")
+            with col2:
+                cf = st.text_input(f"Codice Fiscale", key=f"sindaco_cf_{i}_nomina_cs")
+            
+            if nome:
+                nuovi_sindaci.append({
+                    "nome": nome,
+                    "codice_fiscale": cf,
+                    "ruolo": ruolo
+                })
+        form_data['nuovi_sindaci'] = nuovi_sindaci
         
-        # Partecipanti standardizzati usando il CommonDataHandler
-        participants_data = CommonDataHandler.extract_and_populate_participants_data(
-            extracted_data, 
-            unique_key_suffix="collegio_sindacale"
-        )
-        form_data.update(participants_data)
-        
-        # Dati specifici del Collegio Sindacale
-        st.subheader("👥 Composizione del Collegio Sindacale")
-        
-        # Durata e compenso generale
-        col1, col2 = st.columns(2)
-        with col1:
-            durata_incarico = st.text_input("Durata incarico (es. 'un triennio')", "un triennio")
-            form_data["durata_incarico"] = durata_incarico
-        with col2:
-            compenso_complessivo = st.text_input("Compenso annuo complessivo membri effettivi (€)", "5.000,00")
-            form_data["compenso_complessivo"] = compenso_complessivo
-        
-        # Membri del collegio sindacale
-        st.markdown("**👨‍💼 Membri del Collegio Sindacale**")
-        
-        # Inizializza la lista dei membri se non esiste
-        if 'collegio_members' not in st.session_state:
-            st.session_state.collegio_members = [
-                {"ruolo": "PRESIDENTE", "nome": "", "nato_a": "", "nato_il": date(1970, 1, 1), 
-                 "residente": "", "codice_fiscale": "", "albo_data_gu": date.today(), 
-                 "albo_num_gu": "", "albo_serie_gu": ""},
-                {"ruolo": "SINDACO EFFETTIVO", "nome": "", "nato_a": "", "nato_il": date(1970, 1, 1), 
-                 "residente": "", "codice_fiscale": "", "albo_data_gu": date.today(), 
-                 "albo_num_gu": "", "albo_serie_gu": ""},
-                {"ruolo": "SINDACO EFFETTIVO", "nome": "", "nato_a": "", "nato_il": date(1970, 1, 1), 
-                 "residente": "", "codice_fiscale": "", "albo_data_gu": date.today(), 
-                 "albo_num_gu": "", "albo_serie_gu": ""},
-                {"ruolo": "SINDACO SUPPLENTE", "nome": "", "nato_a": "", "nato_il": date(1970, 1, 1), 
-                 "residente": "", "codice_fiscale": "", "albo_data_gu": date.today(), 
-                 "albo_num_gu": "", "albo_serie_gu": ""},
-                {"ruolo": "SINDACO SUPPLENTE", "nome": "", "nato_a": "", "nato_il": date(1970, 1, 1), 
-                 "residente": "", "codice_fiscale": "", "albo_data_gu": date.today(), 
-                 "albo_num_gu": "", "albo_serie_gu": ""}
-            ]
-        
-        # Form per ogni membro
-        for i, membro in enumerate(st.session_state.collegio_members):
-            with st.expander(f"📋 {membro['ruolo']} {i+1}", expanded=i < 3):  # I primi 3 espansi di default
-                col1, col2 = st.columns(2)
-                with col1:
-                    membro["nome"] = st.text_input(f"Nome completo", value=membro["nome"], key=f"nome_{i}")
-                    membro["nato_a"] = st.text_input(f"Nato a", value=membro["nato_a"], key=f"nato_a_{i}")
-                    membro["nato_il"] = st.date_input(f"Nato il", value=membro["nato_il"], key=f"nato_il_{i}")
-                    membro["residente"] = st.text_input(f"Residente in", value=membro["residente"], key=f"residente_{i}")
-                with col2:
-                    membro["codice_fiscale"] = st.text_input(f"Codice fiscale", value=membro["codice_fiscale"], key=f"cf_{i}")
-                    membro["albo_data_gu"] = st.date_input(f"Data pubblicazione GU", value=membro["albo_data_gu"], key=f"albo_data_{i}")
-                    membro["albo_num_gu"] = st.text_input(f"Numero GU", value=membro["albo_num_gu"], key=f"albo_num_{i}")
-                    membro["albo_serie_gu"] = st.text_input(f"Serie GU", value=membro["albo_serie_gu"], key=f"albo_serie_{i}")
-        
-        form_data["collegio_sindacale"] = st.session_state.collegio_members
-        
-        # Presenza membri in assemblea
-        st.subheader("📋 Dettagli Assemblea")
-        col1, col2 = st.columns(2)
-        with col1:
-            membri_presenti = st.checkbox("I membri del collegio sono presenti in assemblea", value=False)
-            form_data["membri_presenti"] = membri_presenti
-            if membri_presenti:
-                form_data["qualita_presenza"] = st.selectbox("In qualità di", ["invitati", "osservatori"])
-        with col2:
-            socio_proponente = st.text_input("Socio che propone la nomina", "")
-            form_data["socio_proponente"] = socio_proponente
-        
-        # Controllo contabile
-        st.subheader("📊 Controllo Contabile")
-        form_data["controllo_contabile_collegio"] = st.checkbox(
-            "Il controllo contabile è esercitato dal collegio sindacale", 
-            value=True,
-            help="Se l'atto costitutivo non dispone diversamente"
-        )
-        
-        # Ordine del giorno
-        st.subheader("📋 Ordine del Giorno")
-        default_odg = "nomina del Collegio Sindacale della società"
-        punti_odg = st.text_area("Punti all'ordine del giorno", 
-                                default_odg, height=100)
-        form_data["punti_ordine_giorno"] = [p.strip() for p in punti_odg.split("\n") if p.strip()]
-        
-        # Note aggiuntive
-        st.subheader("📝 Note Aggiuntive")
-        form_data["note_aggiuntive"] = st.text_area("Note aggiuntive (opzionale)", 
-                                                   help="Eventuali note specifiche da inserire nel verbale")
-        
+        # Compenso
+        st.subheader("💰 Compenso Organo di Controllo")
+        form_data['compenso_previsto'] = st.checkbox("È previsto un compenso?", value=True, key="compenso_previsto_cs")
+        if form_data.get('compenso_previsto'):
+            form_data['compenso_annuo_sindaci'] = st.text_input("Compenso annuo lordo (€)", "0,00", key="compenso_annuo_cs")
+
         return form_data
     
     def show_preview(self, form_data: dict):
@@ -252,82 +187,96 @@ Assume la presidenza ai sensi dell'art. [...] dello statuto sociale il Sig. {pre
         
         # Aggiungi sezione partecipanti
         text += f"{next_num} - che sono presenti/partecipano all'assemblea:\n"
-        text += f"l'Amministratore Unico nella persona del suddetto Presidente Sig. {presidente}\n"
+        text += f"l'{data.get('ruolo_presidente', 'Amministratore Unico')} nella persona del suddetto Presidente Sig. {presidente}\n"
         
         # Aggiungi soci
-        soci = data.get('soci', [])
-        if soci:
+        soci_presenti = data.get('soci_presenti', [])
+        soci_assenti = data.get('soci_assenti', [])
+
+        # Fallback per mantenere compatibilità se le nuove chiavi non ci sono
+        if not soci_presenti and not soci_assenti and 'soci' in data:
+            soci_presenti = [s for s in data.get('soci', []) if s.get('presente', True)]
+            soci_assenti = [s for s in data.get('soci', []) if not s.get('presente', True)]
+
+        if soci_presenti:
             total_quota_euro = 0.0
             total_quota_percentuale = 0.0
+            capitale_sociale_float = 0.0
+            try:
+                capitale_raw = str(data.get('capitale_sociale', '0')).replace('.', '').replace(',', '.')
+                capitale_sociale_float = float(capitale_raw)
+            except ValueError:
+                pass
 
-            for socio in soci:
+            for socio in soci_presenti:
                 if isinstance(socio, dict):
                     try:
-                        # Rimuovi punti e sostituisci virgola con punto per la conversione a float
                         quota_euro_str = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
                         total_quota_euro += float(quota_euro_str)
-                    except ValueError:
-                        pass # Ignora valori non numerici
+                    except (ValueError, TypeError):
+                        pass
 
-                    try:
-                        quota_percentuale_str = str(socio.get('quota_percentuale', '0')).replace(',', '.')
-                        total_quota_percentuale += float(quota_percentuale_str)
-                    except ValueError:
-                        pass # Ignora valori non numerici
+                    perc_raw = socio.get('quota_percentuale', '')
+                    if perc_raw:
+                        try:
+                            total_quota_percentuale += float(str(perc_raw).replace('%', '').replace(',', '.'))
+                        except (ValueError, TypeError):
+                            pass
+                    else:
+                        try:
+                            euro_val = float(str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.'))
+                            if capitale_sociale_float > 0:
+                                total_quota_percentuale += (euro_val / capitale_sociale_float) * 100
+                        except (ValueError, TypeError):
+                            pass
 
-            # Formattazione per l'output italiano
-            formatted_total_quota_euro = f"{total_quota_euro:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            formatted_total_quota_percentuale = f"{total_quota_percentuale:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            formatted_total_quota_euro = CommonDataHandler.format_currency(total_quota_euro)
+            formatted_total_quota_percentuale = CommonDataHandler.format_percentage(total_quota_percentuale)
 
-            text += f"- Soci presenti: {len(soci)} per un totale di Euro {formatted_total_quota_euro} ({formatted_total_quota_percentuale}% del capitale sociale)\n"
-                        total_quota_percentuale += float(quota_percentuale_str)
-                    except ValueError:
-                        pass # Ignora valori non numerici
-            
-            # Formatta i totali per la visualizzazione
-            formatted_total_quota_euro = f"{total_quota_euro:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') # Formato italiano
-            formatted_total_quota_percentuale = f"{total_quota_percentuale:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') # Formato italiano
-
-            text += f"nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_total_quota_euro} pari al {formatted_total_quota_percentuale}% del Capitale Sociale:\n"
-            for socio in soci:
+            text += f"nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_total_quota_euro} pari al {formatted_total_quota_percentuale} del Capitale Sociale:\n"
+            for socio in soci_presenti:
                 if isinstance(socio, dict):
                     nome = socio.get('nome', '[Nome Socio]')
-                    quota_value = socio.get('quota_euro', '')
-                    percentuale_value = socio.get('quota_percentuale', '')
+                    quota_euro = CommonDataHandler.format_currency(socio.get('quota_euro', '0'))
                     
-                    # Gestione robusta dei valori nulli o vuoti
-                    quota = '[Quota]' if quota_value is None or str(quota_value).strip() == '' else str(quota_value).strip()
-                    percentuale = '[%]' if percentuale_value is None or str(percentuale_value).strip() == '' else str(percentuale_value).strip()
-                    
-                    tipo_partecipazione = socio.get('tipo_partecipazione', 'Diretta')
+                    quota_perc = socio.get('quota_percentuale', '')
+                    if not quota_perc:
+                        try:
+                            euro_val = float(str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.'))
+                            quota_perc = CommonDataHandler.format_percentage((euro_val / capitale_sociale_float) * 100) if capitale_sociale_float > 0 else '[%]'
+                        except (ValueError, TypeError):
+                            quota_perc = '[%]'
+                    else:
+                        quota_perc = CommonDataHandler.clean_percentage(quota_perc)
+
                     tipo_soggetto = socio.get('tipo_soggetto', 'Persona Fisica')
-                    rappresentante_legale = socio.get('rappresentante_legale', '')
-                    
-                    # Determina il prefisso basato sul tipo di soggetto
-                    if tipo_soggetto == 'Società':
-                        prefisso = "la società"
-                        if rappresentante_legale:
-                            rappresentante_text = f" nella persona del suo rappresentante legale {rappresentante_legale}"
-                        else:
-                            rappresentante_text = " nella persona del suo rappresentante legale [Nome Rappresentante]"
-                    else:
-                        prefisso = "il Sig"
-                        rappresentante_text = ""
-                    
-                    if tipo_partecipazione == 'Delegato':
-                        delegato = socio.get('delegato', '[Delegato]')
+                    tipo_partecipazione = socio.get('tipo_partecipazione', 'Diretto')
+                    delegato = socio.get('delegato', '').strip()
+                    rappresentante_legale = socio.get('rappresentante_legale', '').strip()
+
+                    linea_socio = ""
+                    if tipo_partecipazione == 'Delegato' and delegato:
                         if tipo_soggetto == 'Società':
-                            text += f"il Sig {delegato} delegato di {prefisso} {nome}{rappresentante_text} recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale\n"
+                            linea_socio = f"il Sig. {delegato} delegato della società {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
                         else:
-                            text += f"il Sig {delegato} delegato del socio {prefisso} {nome} recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale\n"
+                            linea_socio = f"il Sig. {delegato} delegato del socio Sig. {nome} recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
                     else:
                         if tipo_soggetto == 'Società':
-                            text += f"{prefisso} {nome}{rappresentante_text} socio recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale\n"
+                            if rappresentante_legale:
+                                linea_socio = f"la società {nome}, rappresentata dal Sig. {rappresentante_legale}, socia recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                            else:
+                                linea_socio = f"la società {nome} socia recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
                         else:
-                            text += f"{prefisso} {nome} socio recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale\n"
-                else:
-                    text += f"il Sig {socio} socio recante una quota pari a nominali euro [Quota] pari al [%]% del Capitale Sociale\n"
-        
+                            linea_socio = f"il Sig. {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                    
+                    text += f"{linea_socio}\n"
+
+        if soci_assenti:
+            text += "\nRisultano invece assenti i seguenti soci:\n"
+            for socio in soci_assenti:
+                if isinstance(socio, dict) and socio.get('nome'):
+                    text += f"- {socio.get('nome')}\n"
+
         text += f"""
 {next_num+1} - che gli intervenuti sono legittimati alla presente assemblea;
 {next_num+2} - che tutti gli intervenuti si dichiarano edotti sugli argomenti posti all'ordine del giorno.
@@ -595,25 +544,98 @@ _________________            _________________
         p.add_run(f"{counter} - che sono presenti/partecipano all'assemblea:")
         
         p = doc.add_paragraph()
-        p.add_run(f"l'Amministratore Unico nella persona del suddetto Presidente Sig. {presidente}")
+        p.add_run(f"l'{data.get('ruolo_presidente', 'Amministratore Unico')} nella persona del suddetto Presidente Sig. {presidente}")
         
         # Soci
-        soci = data.get('soci', [])
-        if soci:
+        soci_presenti = data.get('soci_presenti', [])
+        soci_assenti = data.get('soci_assenti', [])
+
+        # Fallback per mantenere compatibilità se le nuove chiavi non ci sono
+        if not soci_presenti and not soci_assenti and 'soci' in data:
+            soci_presenti = [s for s in data.get('soci', []) if s.get('presente', True)]
+            soci_assenti = [s for s in data.get('soci', []) if not s.get('presente', True)]
+
+        if soci_presenti:
+            total_quota_euro = 0.0
+            total_quota_percentuale = 0.0
+            capitale_sociale_float = 0.0
+            try:
+                capitale_raw = str(data.get('capitale_sociale', '0')).replace('.', '').replace(',', '.')
+                capitale_sociale_float = float(capitale_raw)
+            except ValueError:
+                pass
+
+            for socio in soci_presenti:
+                if isinstance(socio, dict):
+                    try:
+                        quota_euro_str = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
+                        total_quota_euro += float(quota_euro_str)
+                    except (ValueError, TypeError):
+                        pass
+
+                    perc_raw = socio.get('quota_percentuale', '')
+                    if perc_raw:
+                        try:
+                            total_quota_percentuale += float(str(perc_raw).replace('%', '').replace(',', '.'))
+                        except (ValueError, TypeError):
+                            pass
+                    else:
+                        try:
+                            euro_val = float(str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.'))
+                            if capitale_sociale_float > 0:
+                                total_quota_percentuale += (euro_val / capitale_sociale_float) * 100
+                        except (ValueError, TypeError):
+                            pass
+
+            formatted_total_quota_euro = CommonDataHandler.format_currency(total_quota_euro)
+            formatted_total_quota_percentuale = CommonDataHandler.format_percentage(total_quota_percentuale)
+
             p = doc.add_paragraph()
-            p.add_run("nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro [...] pari al [...]% del Capitale Sociale:")
+            p.add_run(f"nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_total_quota_euro} pari al {formatted_total_quota_percentuale} del Capitale Sociale:")
             
-            for socio in soci:
-                nome_socio = socio.get('nome', '[NOME SOCIO]')
-                quota_value = socio.get('quota_euro', '')
-                perc_value = socio.get('quota_percentuale', '')
+            for socio in soci_presenti:
+                nome = socio.get('nome', '[NOME SOCIO]')
+                quota_euro = CommonDataHandler.format_currency(socio.get('quota_euro', '0'))
                 
-                # Gestione robusta dei valori nulli o vuoti
-                quota = '[QUOTA]' if quota_value is None or str(quota_value).strip() == '' else str(quota_value).strip()
-                perc = '[%]' if perc_value is None or str(perc_value).strip() == '' else str(perc_value).strip()
+                quota_perc = socio.get('quota_percentuale', '')
+                if not quota_perc:
+                    try:
+                        euro_val = float(str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.'))
+                        quota_perc = CommonDataHandler.format_percentage((euro_val / capitale_sociale_float) * 100) if capitale_sociale_float > 0 else '[%]'
+                    except (ValueError, TypeError):
+                        quota_perc = '[%]'
+                else:
+                    quota_perc = CommonDataHandler.clean_percentage(quota_perc)
+
+                tipo_soggetto = socio.get('tipo_soggetto', 'Persona Fisica')
+                tipo_partecipazione = socio.get('tipo_partecipazione', 'Diretto')
+                delegato = socio.get('delegato', '').strip()
+                rappresentante_legale = socio.get('rappresentante_legale', '').strip()
                 
                 p = doc.add_paragraph()
-                p.add_run(f"il Sig. {nome_socio} socio recante una quota pari a nominali euro {quota} pari al {perc}% del Capitale Sociale")
+                
+                linea_socio = ""
+                if tipo_partecipazione == 'Delegato' and delegato:
+                    if tipo_soggetto == 'Società':
+                        linea_socio = f"il Sig. {delegato} delegato della società {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                    else:
+                        linea_socio = f"il Sig. {delegato} delegato del socio Sig. {nome} recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                else:
+                    if tipo_soggetto == 'Società':
+                        if rappresentante_legale:
+                            linea_socio = f"la società {nome}, rappresentata dal Sig. {rappresentante_legale}, socia recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                        else:
+                            linea_socio = f"la società {nome} socia recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                    else:
+                        linea_socio = f"il Sig. {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                p.add_run(linea_socio)
+
+        if soci_assenti:
+            p = doc.add_paragraph()
+            p.add_run("Risultano invece assenti i seguenti soci:")
+            for socio in soci_assenti:
+                if isinstance(socio, dict) and socio.get('nome'):
+                    p = doc.add_paragraph(f"- {socio.get('nome')}")
         
         counter += 1
         

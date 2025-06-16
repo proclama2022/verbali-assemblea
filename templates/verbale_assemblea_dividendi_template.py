@@ -38,44 +38,37 @@ class VerbaleDividendiTemplate(BaseVerbaleTemplate):
         ]
     
     def get_form_fields(self, extracted_data: dict) -> dict:
-        """Genera i campi del form per Streamlit utilizzando il CommonDataHandler"""
-        form_data = {}
-        
-        # Utilizza il CommonDataHandler per i dati standard
-        # Dati azienda standardizzati
-        form_data.update(CommonDataHandler.extract_and_populate_company_data(extracted_data))
-        
-        # Dati assemblea standardizzati
-        form_data.update(CommonDataHandler.extract_and_populate_assembly_data(extracted_data))
-        
+        """Genera i campi del form per Streamlit utilizzando il CommonDataHandler."""
+        # Chiama il metodo della classe base per ottenere i campi comuni
+        form_data = super().get_form_fields(extracted_data)
+
         # Campi specifici per distribuzione dividendi
         st.subheader("💰 Configurazioni Specifiche Distribuzione Dividendi")
         
         col1, col2 = st.columns(2)
         with col1:
             form_data["ruolo_presidente"] = st.selectbox("Ruolo del presidente", 
-                                                        CommonDataHandler.get_standard_ruoli_presidente())
+                                                        CommonDataHandler.get_standard_ruoli_presidente(),
+                                                        key="ruolo_presidente_dividendi")
             form_data["importo_dividendi"] = st.text_input("Importo totale dividendi (€)", 
                                                           "0,00",
-                                                          help="Importo complessivo da distribuire")
+                                                          help="Importo complessivo da distribuire",
+                                                          key="importo_dividendi")
         with col2:
             form_data["modalita_assemblea"] = st.selectbox("Modalità assemblea", 
-                                                          ["In presenza", "Audioconferenza", "Mista"])
-            form_data["socio_proponente"] = st.text_input("Socio proponente", 
-                                                         help="Nome del socio che propone la distribuzione")
-        
-        # Partecipanti standardizzati usando il CommonDataHandler
-        participants_data = CommonDataHandler.extract_and_populate_participants_data(
-            extracted_data, 
-            unique_key_suffix="dividendi"
-        )
-        form_data.update(participants_data)
-        
+                                                          ["In presenza", "Audioconferenza", "Mista"],
+                                                          key="modalita_assemblea_dividendi")
+            soci_options = [s.get("nome", "") for s in form_data.get("soci", [])]
+            form_data["socio_proponente"] = st.selectbox("Socio proponente", 
+                                                         soci_options,
+                                                         help="Nome del socio che propone la distribuzione",
+                                                         key="socio_proponente_dividendi")
+
         # Ordine del giorno specifico per dividendi
         st.subheader("📋 Ordine del Giorno")
         default_odg = "Proposta di distribuzione dei dividendi"
         form_data["ordine_giorno"] = st.text_area("Ordine del giorno", 
-                                                 default_odg, height=80)
+                                                 default_odg, height=80, key="odg_dividendi")
         
         # Sezione dettagli distribuzione
         st.subheader("💸 Dettagli Distribuzione")
@@ -83,43 +76,47 @@ class VerbaleDividendiTemplate(BaseVerbaleTemplate):
         col1, col2 = st.columns(2)
         with col1:
             form_data["tipo_distribuzione"] = st.selectbox("Tipo di distribuzione", 
-                                                          ["Utili pregressi", "Riserve disponibili", "Utile dell'esercizio"])
+                                                          ["Utili pregressi", "Riserve disponibili", "Utile dell'esercizio"],
+                                                          key="tipo_distribuzione_dividendi")
             form_data["modalita_ripartizione"] = st.selectbox("Modalità ripartizione", 
-                                                             ["Proporzionale alla quota", "Secondo atto costitutivo", "Personalizzata"])
+                                                             ["Proporzionale alla quota", "Secondo atto costitutivo", "Personalizzata"],
+                                                             key="modalita_ripartizione_dividendi")
         with col2:
-            form_data["prelievo_riserve"] = st.checkbox("Prelievo da fondo di riserva")
+            form_data["prelievo_riserve"] = st.checkbox("Prelievo da fondo di riserva", key="prelievo_riserve_dividendi")
             if form_data["prelievo_riserve"]:
-                form_data["nome_riserva"] = st.text_input("Nome del fondo di riserva", "Riserva utili")
+                form_data["nome_riserva"] = st.text_input("Nome del fondo di riserva", "Riserva utili", key="nome_riserva_dividendi")
         
         # Calcolo automatico dividendi per socio
         st.subheader("📊 Calcolo Dividendi per Socio")
         
         if form_data.get("importo_dividendi") and form_data.get("soci"):
             try:
-                importo_totale = float(form_data["importo_dividendi"].replace(",", "."))
+                importo_totale_str = str(form_data["importo_dividendi"]).replace(".", "").replace(",", ".")
+                importo_totale = float(importo_totale_str)
                 
                 # Mostra calcolo per ogni socio
                 soci_dividendi = []
-                for socio in form_data["soci"]:
+                for socio in form_data.get("soci", []):
                     if socio.get("quota_percentuale"):
                         try:
-                            perc = float(socio["quota_percentuale"].replace("%", "").replace(",", "."))
+                            perc_str = str(socio["quota_percentuale"]).replace("%", "").replace(",", ".")
+                            perc = float(perc_str)
                             dividendo_socio = (importo_totale * perc) / 100
                             soci_dividendi.append({
                                 "nome": socio.get("nome", ""),
-                                "quota_perc": f"{perc:.1f}%",
-                                "dividendo": f"{dividendo_socio:.2f}€"
+                                "quota_perc": f"{perc:.2f}%",
+                                "dividendo": f"{dividendo_socio:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
                             })
-                        except:
+                        except (ValueError, TypeError):
                             pass
                 
                 if soci_dividendi:
                     st.write("**Calcolo automatico dividendi:**")
                     df_dividendi = pd.DataFrame(soci_dividendi)
-                    st.dataframe(df_dividendi, use_container_width=True)
+                    st.dataframe(df_dividendi, use_container_width=True, hide_index=True)
                     form_data["calcolo_dividendi"] = soci_dividendi
                     
-            except:
+            except (ValueError, TypeError):
                 st.warning("⚠️ Inserisci un importo valido per visualizzare il calcolo")
         
         # Modalità di voto
@@ -128,25 +125,27 @@ class VerbaleDividendiTemplate(BaseVerbaleTemplate):
         col1, col2 = st.columns(2)
         with col1:
             form_data["tipo_voto"] = st.selectbox("Esito del voto", 
-                                                 ["Unanimità", "Maggioranza con contrari", "Maggioranza con astenuti"])
+                                                 ["Unanimità", "Maggioranza con contrari", "Maggioranza con astenuti"],
+                                                 key="tipo_voto_dividendi")
         with col2:
             if form_data["tipo_voto"] != "Unanimità":
-                form_data["voti_contrari"] = st.text_input("Nomi voti contrari (separati da virgola)", "")
+                form_data["voti_contrari"] = st.text_input("Nomi voti contrari (separati da virgola)", "", key="voti_contrari_dividendi")
                 if form_data["tipo_voto"] == "Maggioranza con astenuti":
-                    form_data["astensioni"] = st.text_input("Nomi astensioni (separati da virgola)", "")
+                    form_data["astensioni"] = st.text_input("Nomi astensioni (separati da virgola)", "", key="astensioni_dividendi")
         
         # Traduzione (se necessaria)
         st.subheader("🌐 Traduzione")
-        form_data["richiede_traduzione"] = st.checkbox("È necessaria traduzione per partecipanti stranieri")
+        form_data["richiede_traduzione"] = st.checkbox("È necessaria traduzione per partecipanti stranieri", key="traduzione_dividendi")
         if form_data["richiede_traduzione"]:
             col1, col2 = st.columns(2)
             with col1:
-                form_data["partecipante_straniero"] = st.text_input("Nome partecipante straniero")
+                form_data["partecipante_straniero"] = st.text_input("Nome partecipante straniero", key="part_straniero_dividendi")
                 form_data["lingua_straniera"] = st.selectbox("Lingua di traduzione", 
-                                                           ["Inglese", "Francese", "Tedesco", "Spagnolo", "Altro"])
+                                                           ["Inglese", "Francese", "Tedesco", "Spagnolo", "Altro"],
+                                                           key="lingua_dividendi")
             with col2:
                 if form_data["lingua_straniera"] == "Altro":
-                    form_data["lingua_altro"] = st.text_input("Specifica lingua")
+                    form_data["lingua_altro"] = st.text_input("Specifica lingua", key="lingua_altro_dividendi")
         
         return form_data
     
@@ -198,6 +197,9 @@ class VerbaleDividendiTemplate(BaseVerbaleTemplate):
     def _generate_preview_text(self, data: dict) -> str:
         """Genera il testo di anteprima del verbale"""
         
+        # Determina la frase di convocazione (regolarmente convocata vs totalitaria)
+        convocazione_phrase = "totalitaria" if "totalitaria" in str(data.get("tipo_convocazione", "")).lower() else "regolarmente convocata"
+        
         # Formattazioni utili
         data_str = self._format_date(data.get('data_assemblea', '[DATA]'))
         ora_str = self._format_time(data.get('ora_inizio', data.get('ora_assemblea', '[ORA]')))
@@ -232,10 +234,37 @@ Assume la presidenza ai sensi dell'art. [...] dello statuto sociale il Sig. **{d
    - l'{data.get('ruolo_presidente', 'Amministratore Unico')} nella persona del suddetto Presidente Sig. **{data.get('presidente', '[PRESIDENTE]')}**
 """
         
+        # Collegio sindacale se presente
+        if data.get('include_collegio_sindacale', False):
+            tipo_organo_controllo = data.get('tipo_organo_controllo', 'Collegio Sindacale')
+            
+            if tipo_organo_controllo == 'Collegio Sindacale':
+                sindaci = data.get('sindaci', [])
+                sindaci_presenti = [s for s in sindaci if s.get('presente')]
+                if sindaci_presenti:
+                    preview += "\n   - per il Collegio Sindacale:\n"
+                    for sindaco in sindaci_presenti:
+                        carica = sindaco.get('carica', 'Sindaco Effettivo')
+                        nome_sindaco = sindaco.get('nome', '')
+                        if nome_sindaco:
+                            preview += f"     - il Dott. {nome_sindaco} - {carica}\n"
+            else: # Sindaco Unico
+                sindaci = data.get('sindaci', [])
+                if sindaci and sindaci[0].get('nome'):
+                    sindaco_unico_nome = sindaci[0].get('nome')
+                    preview += f"\n   - il Sindaco Unico nella persona del Sig. {sindaco_unico_nome}"
+
         # Sezione partecipanti
-        soci = data.get('soci', [])
-        if soci:
-            # Calcola totali euro e percentuale
+        soci_presenti = data.get('soci_presenti', [])
+        soci_assenti = data.get('soci_assenti', [])
+        
+        # Fallback per mantenere compatibilità
+        if not soci_presenti and not soci_assenti and 'soci' in data:
+            soci_presenti = [s for s in data.get('soci', []) if s.get('presente', True)]
+            soci_assenti = [s for s in data.get('soci', []) if not s.get('presente', True)]
+
+        if soci_presenti:
+            # Calcola totali euro e percentuale solo sui presenti
             totale_euro = 0.0
             totale_perc = 0.0
             capitale_raw = str(data.get('capitale_sociale', '0')).replace('.', '').replace(',', '.')
@@ -244,7 +273,7 @@ Assume la presidenza ai sensi dell'art. [...] dello statuto sociale il Sig. **{d
             except ValueError:
                 capitale_float = 0.0
 
-            for socio in soci:
+            for socio in soci_presenti:
                 if isinstance(socio, dict):
                     euro_raw = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
                     try:
@@ -269,7 +298,7 @@ Assume la presidenza ai sensi dell'art. [...] dello statuto sociale il Sig. **{d
             formatted_perc = CommonDataHandler.format_percentage(totale_perc)
 
             preview += f"\n   - nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_euro} pari al {formatted_perc} del Capitale Sociale:\n"
-            for socio in soci:
+            for socio in soci_presenti:
                 if not isinstance(socio, dict) or not socio.get('nome'):
                     continue
                 nome = socio.get('nome')
@@ -305,6 +334,12 @@ Assume la presidenza ai sensi dell'art. [...] dello statuto sociale il Sig. **{d
 
                 preview += f"     - {line}\n"
         
+        if soci_assenti:
+            preview += "\n   - risultano invece assenti i seguenti soci:\n"
+            for socio in soci_assenti:
+                if isinstance(socio, dict) and socio.get('nome'):
+                    preview += f"     - il Sig. {socio.get('nome')}\n"
+        
         preview += f"""
 3. che gli intervenuti sono legittimati alla presente assemblea;
 4. che tutti gli intervenuti si dichiarano edotti sugli argomenti posti all'ordine del giorno.
@@ -325,7 +360,7 @@ In particolare, preso atto che il Sig. **{data.get('partecipante_straniero', '[P
 """
         
         preview += f"""
-Il Presidente constata e fa constatare che l'assemblea risulta regolarmente convocata e deve ritenersi valida ed atta a deliberare sul citato ordine del giorno.
+Il Presidente constata e fa constatare che l'assemblea risulta {convocazione_phrase} e deve ritenersi valida ed atta a deliberare sul citato ordine del giorno.
 
 Si passa quindi allo svolgimento dell'ordine del giorno.
 
@@ -537,9 +572,36 @@ _________________                    _________________
         participants_p = doc.add_paragraph("2 - che sono presenti/partecipano all'assemblea:")
         participants_p.add_run(f"\nl'{data.get('ruolo_presidente', 'Amministratore Unico')} nella persona del suddetto Presidente Sig. {data.get('presidente', '[PRESIDENTE]')}")
         
+        # Aggiungi Collegio Sindacale se presente
+        if data.get('include_collegio_sindacale', False):
+            tipo_organo_controllo = data.get('tipo_organo_controllo', 'Collegio Sindacale')
+            
+            if tipo_organo_controllo == 'Collegio Sindacale':
+                sindaci = data.get('sindaci', [])
+                sindaci_presenti = [s for s in sindaci if s.get('presente')]
+                if sindaci_presenti:
+                    participants_p.add_run("\nper il Collegio Sindacale:")
+                    for sindaco in sindaci_presenti:
+                        carica = sindaco.get('carica', 'Sindaco Effettivo')
+                        nome_sindaco = sindaco.get('nome', '')
+                        if nome_sindaco:
+                            participants_p.add_run(f"\nil Dott. {nome_sindaco} - {carica}")
+            else: # Sindaco Unico
+                sindaci = data.get('sindaci', [])
+                if sindaci and sindaci[0].get('nome'):
+                    sindaco_unico_nome = sindaci[0].get('nome')
+                    participants_p.add_run(f"\nil Sindaco Unico nella persona del Sig. {sindaco_unico_nome}")
+
         # Aggiungi soci
-        soci = data.get('soci', [])
-        if soci:
+        soci_presenti = data.get('soci_presenti', [])
+        soci_assenti = data.get('soci_assenti', [])
+        
+        # Fallback per mantenere compatibilità
+        if not soci_presenti and not soci_assenti and 'soci' in data:
+            soci_presenti = [s for s in data.get('soci', []) if s.get('presente', True)]
+            soci_assenti = [s for s in data.get('soci', []) if not s.get('presente', True)]
+
+        if soci_presenti:
             # Calcola totali euro e percentuale
             totale_euro = 0.0
             totale_perc = 0.0
@@ -549,7 +611,7 @@ _________________                    _________________
             except ValueError:
                 capitale_float = 0.0
 
-            for socio in soci:
+            for socio in soci_presenti:
                 if isinstance(socio, dict):
                     euro_raw = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
                     try:
@@ -575,7 +637,7 @@ _________________                    _________________
 
             participants_p.add_run(f"\nnonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_euro} pari al {formatted_perc} del Capitale Sociale:")
 
-            for socio in soci:
+            for socio in soci_presenti:
                 if not isinstance(socio, dict) or not socio.get('nome'):
                     continue
                 nome = socio.get('nome')
@@ -611,6 +673,12 @@ _________________                    _________________
 
                 participants_p.add_run(f"\n{line}")
         
+        if soci_assenti:
+            assenti_p = doc.add_paragraph("   - risultano invece assenti i seguenti soci:")
+            for socio in soci_assenti:
+                if isinstance(socio, dict) and socio.get('nome'):
+                    assenti_p.add_run(f"\n     - il Sig. {socio.get('nome')}")
+
         doc.add_paragraph()
     
     def _add_preliminary_statements(self, doc, data):
@@ -636,7 +704,8 @@ _________________                    _________________
             doc.add_paragraph(translation_text)
         
         doc.add_paragraph()
-        validity_text = "Il Presidente constata e fa constatare che l'assemblea risulta regolarmente convocata e deve ritenersi valida ed atta a deliberare sul citato ordine del giorno."
+        convocazione_phrase = "totalitaria" if "totalitaria" in str(data.get("tipo_convocazione", "")).lower() else "regolarmente convocata"
+        validity_text = f"Il Presidente constata e fa constatare che l'assemblea risulta {convocazione_phrase} e deve ritenersi valida ed atta a deliberare sul citato ordine del giorno."
         doc.add_paragraph(validity_text)
         doc.add_paragraph()
         

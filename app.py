@@ -519,7 +519,15 @@ def main():
                 # Single confirm button
                 if st.button("💾 Conferma e Procedi al Documento", type="primary", use_container_width=True):
                     if selected_data:
-                        final_data = {k: v for k, v in selected_data.items() if v is not None and v != ""}
+                        # Combina i dati estratti automaticamente con le selezioni manuali
+                        final_data = {}
+                        for doc in multi_processor.processed_documents:
+                            final_data.update(doc.get('extracted_info', {}))
+                        
+                        # Sovrascrivi con le selezioni manuali, se valide
+                        for k, v in selected_data.items():
+                            if v not in (None, "", []):
+                                final_data[k] = v
                         
                         if final_data:
                             st.session_state.extracted_info = final_data

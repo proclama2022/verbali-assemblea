@@ -38,345 +38,39 @@ class VerbaleAssembleaCompletoTemplate(BaseVerbaleTemplate):
         ]
     
     def get_form_fields(self, extracted_data: dict) -> dict:
-        """Genera i campi del form per Streamlit utilizzando il CommonDataHandler"""
-        form_data = {}
-        
-        # Utilizza il CommonDataHandler per i dati standard
-        # Dati azienda standardizzati
-        form_data.update(CommonDataHandler.extract_and_populate_company_data(extracted_data))
-        
-        # Dati assemblea standardizzati  
-        form_data.update(CommonDataHandler.extract_and_populate_assembly_data(extracted_data))
-        
-        # Configurazioni specifiche del template completo
-        st.subheader("📋 Configurazioni Specifiche Template Completo")
-        
-        # Data chiusura bilancio
-        form_data["data_chiusura"] = st.date_input("Data chiusura bilancio", 
-                                                   CommonDataHandler.get_default_date_chiusura())
-        
-        # Ora inizio e fine assemblea
-        col1, col2 = st.columns(2)
+        """Genera i campi del form per Streamlit."""
+        # Chiama il metodo della classe base per ottenere i campi comuni
+        form_data = super().get_form_fields(extracted_data)
+
+        st.subheader("📑 Configurazioni Specifiche del Verbale Completo")
+
+        # Sezioni opzionali
+        col1, col2, col3 = st.columns(3)
         with col1:
-            ora_inizio = st.text_input("Ora inizio assemblea", value=form_data.get('ora_inizio', '10:00'))
-            form_data["ora_inizio"] = ora_inizio
+            form_data['include_nomina_cda'] = st.checkbox("Include Nomina CdA", key="include_nomina_cda_completo")
+            form_data['include_nomina_revisore'] = st.checkbox("Include Nomina Revisore", key="include_nomina_revisore_completo")
         with col2:
-            ora_fine = st.text_input("Ora fine assemblea", value=form_data.get('ora_fine', '11:30'))
-            form_data["ora_fine"] = ora_fine
-        
-        # Tipo di amministrazione
-        form_data["tipo_amministrazione"] = st.selectbox(
-            "Tipo di amministrazione", 
-            ["Amministratore Unico", "Consiglio di Amministrazione"]
-        )
-        
-        # Collegio Sindacale
-        form_data["has_collegio_sindacale"] = st.checkbox("Collegio Sindacale presente")
-        if form_data["has_collegio_sindacale"]:
-            form_data["tipo_collegio"] = st.selectbox("Tipo collegio sindacale", ["Collegio Sindacale", "Sindaco Unico"])
-            
-            if form_data["tipo_collegio"] == "Sindaco Unico":
-                form_data["sindaco_unico"] = st.text_input("Nome Sindaco Unico", "")
-                form_data["sindaci"] = [{"nome": form_data["sindaco_unico"], "carica": "Sindaco Unico", "presente": True}]
-            else:
-                df_sindaci = pd.DataFrame([
-                    {"nome": "", "carica": "Presidente", "presente": True},
-                    {"nome": "", "carica": "Sindaco Effettivo", "presente": True},
-                    {"nome": "", "carica": "Sindaco Effettivo", "presente": True}
-                ])
-                
-                column_config_sindaci = {
-                    "presente": st.column_config.CheckboxColumn("Presente"),
-                    "nome": st.column_config.TextColumn("Nome", required=True),
-                    "carica": st.column_config.SelectboxColumn(
-                        "Carica",
-                        options=["Presidente", "Sindaco Effettivo", "Sindaco Supplente"],
-                        default="Sindaco Effettivo"
-                    )
-                }
-                
-                df_sindaci_edited = st.data_editor(
-                    df_sindaci, 
-                    num_rows="dynamic", 
-                    use_container_width=True,
-                    column_config=column_config_sindaci,
-                    key="sindaci_editor_completo"
-                )
-                form_data["sindaci"] = df_sindaci_edited.to_dict("records")
-        else:
-            form_data["sindaci"] = []
-        
-        # Altri partecipanti
-        form_data["has_altri_partecipanti"] = st.checkbox("Altri partecipanti presenti")
-        if form_data["has_altri_partecipanti"]:
-            df_altri = pd.DataFrame([{"nome": "", "qualita": ""}])
-            df_altri_edited = st.data_editor(df_altri, num_rows="dynamic", use_container_width=True, key="altri_editor_completo")
-            form_data["altri_partecipanti"] = df_altri_edited.to_dict("records")
-        else:
-            form_data["altri_partecipanti"] = []
-        
-        # Ripianamento perdite
-        st.subheader("💰 Gestione Perdite")
-        form_data["has_ripianamento"] = st.checkbox("Include ripianamento perdite")
-        if form_data["has_ripianamento"]:
-            form_data["importo_perdita"] = st.text_input("Importo perdita da ripianare (€)", "")
-            form_data["tipo_credito"] = st.selectbox(
-                "Tipo di credito per ripianamento", 
-                ["finanziamento infruttifero soci", "finanziamento fruttifero soci", "altro"]
-            )
-            
-            # Dettaglio rinunce per socio
-            st.write("**Dettaglio rinunce per socio:**")
-            df_rinunce = pd.DataFrame([{"socio": "", "importo_rinuncia": "", "percentuale": "", "residuo": ""}])
-            df_rinunce_edited = st.data_editor(df_rinunce, num_rows="dynamic", use_container_width=True, key="rinunce_editor_completo")
-            form_data["rinunce_soci"] = df_rinunce_edited.to_dict("records")
-        
-        # Ordine del giorno
-        st.subheader("📋 Ordine del Giorno")
-        default_odg = f"1. Approvazione del Bilancio al {form_data['data_chiusura'].strftime('%d/%m/%Y')} e dei documenti correlati\n2. Delibere consequenziali"
-        if form_data["has_ripianamento"]:
-            default_odg += "\n3. Ripianamento perdite"
-        punti_odg = st.text_area("Punti all'ordine del giorno", default_odg, height=120)
-        form_data["punti_ordine_giorno"] = [p.strip() for p in punti_odg.split("\n") if p.strip()]
-        
-        # Gestione dei soci dalla visura
-        st.subheader("👥 Soci dalla Visura")
-        
-        # Verifica se ci sono dati dei soci dalla visura
-        soci_visura = extracted_data.get('soci', [])
-        if soci_visura:
-            st.info(f"Trovati {len(soci_visura)} soci nella visura")
-            
-            # Prepara i dati dei soci per il data editor
-            soci_data = []
-            for socio in soci_visura:
-                socio_dict = {
-                    "nome": socio.get('nome', ''),
-                    "quota_euro": socio.get('quota_euro', ''),
-                    "quota_percentuale": socio.get('quota_percentuale', ''),
-                    "tipo_soggetto": socio.get('tipo_soggetto', 'Persona Fisica'),
-                    "presente": True,
-                    "tipo_partecipazione": "Diretto",
-                    "delegato": "",
-                    "rappresentante_legale": ""
-                }
-                
-                # Se è una società, aggiungi il rappresentante legale
-                if socio.get('tipo_soggetto') == 'Società':
-                    socio_dict["rappresentante_legale"] = socio.get('rappresentante_legale', '')
-                
-                soci_data.append(socio_dict)
-            
-            # Se non ci sono soci dalla visura, aggiungi una riga vuota
-            if not soci_data:
-                soci_data = [{"nome": "", "quota_euro": "", "quota_percentuale": "", "tipo_soggetto": "Persona Fisica", "presente": True, "tipo_partecipazione": "Diretto", "delegato": "", "rappresentante_legale": ""}]
-            
-            # Configura le colonne per il data editor
-            column_config_soci = {
-                "presente": st.column_config.CheckboxColumn("Presente"),
-                "nome": st.column_config.TextColumn("Nome", required=True),
-                "quota_euro": st.column_config.TextColumn("Quota (€)"),
-                "quota_percentuale": st.column_config.TextColumn("Quota (%)"),
-                "tipo_soggetto": st.column_config.SelectboxColumn(
-                    "Tipo Soggetto",
-                    options=["Persona Fisica", "Società"],
-                    default="Persona Fisica"
-                ),
-                "tipo_partecipazione": st.column_config.SelectboxColumn(
-                    "Tipo Partecipazione",
-                    options=["Diretto", "Delegato"],
-                    default="Diretto"
-                ),
-                "delegato": st.column_config.TextColumn("Nome Delegato"),
-                "rappresentante_legale": st.column_config.TextColumn("Rappresentante Legale (per società)")
-            }
-            
-            # Mostra istruzioni per i rappresentanti e delegati
-            st.info("Per le società, inserisci il nome del rappresentante legale nella colonna apposita. Per i soci rappresentati da delegati, seleziona 'Delegato' come tipo di partecipazione e inserisci il nome del delegato nella colonna 'Nome Delegato'.")
-            
-            # Crea il data editor per i soci
-            df_soci = pd.DataFrame(soci_data)
-            df_soci_edited = st.data_editor(
-                df_soci,
-                num_rows="dynamic",
-                use_container_width=True,
-                column_config=column_config_soci,
-                key="soci_editor_completo"
-            )
-            form_data["soci"] = df_soci_edited.to_dict("records")
-            
-            # Calcola e mostra la percentuale totale dei soci presenti
-            soci_presenti = [s for s in form_data["soci"] if s.get("presente", False)]
-            total_quota_percentuale = 0.0
-            
-            for socio in soci_presenti:
-                try:
-                    quota_percentuale_str = str(socio.get('quota_percentuale', '0')).replace('.', '').replace(',', '.')
-                    total_quota_percentuale += float(quota_percentuale_str)
-                except ValueError:
-                    pass  # Ignora valori non numerici
-            
-            # Formatta il totale per la visualizzazione
-            formatted_total_percentuale = f"{total_quota_percentuale:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-            
-            st.success(f"Percentuale totale dei soci presenti: {formatted_total_percentuale}% del Capitale Sociale")
-            
-        else:
-            # Se non ci sono dati dalla visura, usa il CommonDataHandler standard per i soci
-            st.warning("Nessun socio trovato nella visura. Inserire manualmente i dati.")
-            participants_data = CommonDataHandler.extract_and_populate_participants_data(
-                extracted_data, 
-                unique_key_suffix="completo_soci",
-                extended_admin_columns=False
-            )
-            form_data.update(participants_data)
-        
-        # Gestione degli amministratori dalla visura
-        st.subheader("👤 Amministratori dalla Visura")
-        
-        # Verifica se ci sono dati degli amministratori dalla visura
-        amministratori_visura = extracted_data.get('amministratori', [])
-        if amministratori_visura:
-            st.info(f"Trovati {len(amministratori_visura)} amministratori nella visura")
-            
-            # Prepara i dati degli amministratori per il data editor
-            amministratori_data = []
-            for amm in amministratori_visura:
-                amm_dict = {
-                    "nome": amm.get('nome', ''),
-                    "carica": amm.get('carica', 'Amministratore'),
-                    "presente": True,
-                    "assente_giustificato": False
-                }
-                
-                # Adatta la carica in base al tipo di amministrazione
-                if form_data["tipo_amministrazione"] == "Amministratore Unico" and "unico" not in amm_dict["carica"].lower():
-                    amm_dict["carica"] = "Amministratore Unico"
-                elif form_data["tipo_amministrazione"] == "Consiglio di Amministrazione" and "unico" in amm_dict["carica"].lower():
-                    amm_dict["carica"] = "Presidente CDA"
-                
-                amministratori_data.append(amm_dict)
-            
-            # Se non ci sono amministratori dalla visura, aggiungi una riga vuota
-            if not amministratori_data:
-                carica_default = "Amministratore Unico" if form_data["tipo_amministrazione"] == "Amministratore Unico" else "Presidente CDA"
-                amministratori_data = [{"nome": "", "carica": carica_default, "presente": True, "assente_giustificato": False}]
-            
-            # Configura le colonne per il data editor
-            column_config_amministratori = {
-                "presente": st.column_config.CheckboxColumn("Presente"),
-                "nome": st.column_config.TextColumn("Nome", required=True),
-                "assente_giustificato": st.column_config.CheckboxColumn("Assente Giustificato"),
-            }
-            
-            # Aggiungi opzioni di carica in base al tipo di amministrazione
-            if form_data["tipo_amministrazione"] == "Amministratore Unico":
-                column_config_amministratori["carica"] = st.column_config.SelectboxColumn(
-                    "Carica",
-                    options=["Amministratore Unico"],
-                    default="Amministratore Unico"
-                )
-            else:
-                column_config_amministratori["carica"] = st.column_config.SelectboxColumn(
-                    "Carica",
-                    options=["Presidente CDA", "Vice Presidente", "Consigliere", "Amministratore Delegato"],
-                    default="Consigliere"
-                )
-            
-            # Crea il data editor per gli amministratori
-            df_amministratori = pd.DataFrame(amministratori_data)
-            df_amministratori_edited = st.data_editor(
-                df_amministratori,
-                num_rows="dynamic",
-                use_container_width=True,
-                column_config=column_config_amministratori,
-                key="amministratori_editor_completo"
-            )
-            form_data["amministratori"] = df_amministratori_edited.to_dict("records")
-            
-            # Imposta il presidente come il primo amministratore con carica di presidente
-            for amm in form_data["amministratori"]:
-                if "presidente" in amm.get("carica", "").lower() and amm.get("presente", False):
-                    form_data["presidente"] = amm.get("nome", "")
-                    break
-            
-            # Se non è stato trovato un presidente, usa il primo amministratore presente
-            if not form_data.get("presidente"):
-                for amm in form_data["amministratori"]:
-                    if amm.get("presente", False):
-                        form_data["presidente"] = amm.get("nome", "")
-                        break
-        else:
-            # Se non ci sono dati dalla visura, usa il CommonDataHandler standard per gli amministratori
-            st.warning("Nessun amministratore trovato nella visura. Inserire manualmente i dati.")
-            admin_data = CommonDataHandler.extract_and_populate_admin_data(
-                extracted_data, 
-                unique_key_suffix="completo_admin",
-                extended_admin_columns=True
-            )
-            
-            # Aggiungi solo i dati degli amministratori se non sono già stati aggiunti
-            if "amministratori" not in form_data:
-                form_data["amministratori"] = admin_data.get("amministratori", [])
-            
-            # Imposta il presidente se non è già stato impostato
-            if not form_data.get("presidente") and admin_data.get("presidente"):
-                form_data["presidente"] = admin_data.get("presidente")
-        
-        # Campo specifico per il segretario
-        st.subheader("📝 Segretario dell'Assemblea")
-        
-        # Verifica se c'è già un segretario nei dati estratti
-        segretario_default = extracted_data.get('segretario', '')
-        
-        # Raccogli tutti i possibili candidati per il ruolo di segretario
-        candidati_segretario = []
-        
-        # Aggiungi i soci presenti come possibili candidati
-        for socio in form_data.get('soci', []):
-            if socio.get('presente', False) and socio.get('nome'):
-                candidati_segretario.append(socio.get('nome'))
-        
-        # Aggiungi gli amministratori presenti che non sono il presidente
-        for amm in form_data.get('amministratori', []):
-            if amm.get('presente', False) and amm.get('nome') != form_data.get('presidente') and amm.get('nome'):
-                candidati_segretario.append(amm.get('nome'))
-        
-        # Opzione per inserire un soggetto esterno
-        candidati_segretario.append("Altro (inserire manualmente)")
-        
-        # Selettore per il segretario
-        segretario_selezionato = st.selectbox(
-            "Seleziona il Segretario", 
-            options=candidati_segretario,
-            index=0 if candidati_segretario else 0,
-            key="segretario_selectbox"
-        )
-        
-        # Se è stato selezionato "Altro", mostra un campo per inserire manualmente il nome
-        if segretario_selezionato == "Altro (inserire manualmente)":
-            segretario_manuale = st.text_input("Nome del Segretario (esterno)", value=segretario_default)
-            form_data["segretario"] = segretario_manuale
-        else:
-            form_data["segretario"] = segretario_selezionato
-        
-        # Post-processing per gestire amministratore unico vs CDA
-        if form_data["tipo_amministrazione"] == "Amministratore Unico":
-            # Se è AU, assicurati che ci sia solo un amministratore
-            if form_data.get("amministratori"):
-                # Prendi il primo amministratore o usa il rappresentante estratto
-                primo_amm = form_data["amministratori"][0] if form_data["amministratori"] else {}
-                nome_au = primo_amm.get("nome", extracted_data.get("rappresentante", ""))
-                form_data["amministratori"] = [{"nome": nome_au, "carica": "Amministratore Unico", "presente": True}]
-                # Aggiorna anche il presidente se necessario
-                if not form_data.get("presidente") or form_data["presidente"] != nome_au:
-                    form_data["presidente"] = nome_au
-        else:
-            # Se è CDA, assicurati che le cariche siano appropriate per il CDA
-            for amm in form_data.get("amministratori", []):
-                if amm.get("carica") == "Amministratore Unico":
-                    amm["carica"] = "Presidente CDA"
-        
+            form_data['include_approvazione_bilancio'] = st.checkbox("Include Approvazione Bilancio", key="include_bilancio_completo")
+            form_data['include_distribuzione_utili'] = st.checkbox("Include Distribuzione Utili", key="include_utili_completo")
+        with col3:
+            form_data['include_ratifica_operato'] = st.checkbox("Include Ratifica Operato", key="include_ratifica_completo")
+            form_data['altre_delibere'] = st.checkbox("Include Altre Delibere", key="include_altre_delibere_completo")
+
+        # Campi condizionali basati sulle selezioni
+        if form_data.get('include_approvazione_bilancio'):
+            st.subheader("📊 Dati Bilancio")
+            # Aggiungere qui i campi specifici per l'approvazione del bilancio
+            form_data['esercizio_bilancio'] = st.text_input("Esercizio di riferimento del bilancio", key="esercizio_bilancio_completo")
+
+        if form_data.get('include_distribuzione_utili'):
+            st.subheader("💰 Dati Distribuzione Utili")
+            # Aggiungere qui i campi specifici per la distribuzione degli utili
+            form_data['importo_utili'] = st.text_input("Importo utili da distribuire (€)", "0,00", key="importo_utili_completo")
+
+        if form_data.get('altre_delibere'):
+            st.subheader("✍️ Altre Delibere")
+            form_data['testo_altre_delibere'] = st.text_area("Testo per altre delibere", height=150, key="testo_altre_delibere_completo")
+
         return form_data
 
     def show_preview(self, form_data: dict):
@@ -467,8 +161,14 @@ Assume la presidenza ai sensi dell'art. […] dello statuto sociale il Sig. {pre
                     preview += f"\nil Sig. {altro.get('nome', '')} in qualità di {altro.get('qualita', '')}\n"
         
         # Soci
-        soci = data.get('soci', [])
-        soci_presenti = [s for s in soci if s.get('presente', False)]
+        soci_presenti = data.get('soci_presenti', [])
+        soci_assenti = data.get('soci_assenti', [])
+
+        # Fallback per mantenere compatibilità se le nuove chiavi non ci sono
+        if not soci_presenti and not soci_assenti and 'soci' in data:
+            soci_presenti = [s for s in data.get('soci', []) if s.get('presente', True)]
+            soci_assenti = [s for s in data.get('soci', []) if not s.get('presente', True)]
+
         total_quota_euro = 0.0
         total_quota_percentuale = 0.0
 
@@ -490,35 +190,42 @@ Assume la presidenza ai sensi dell'art. […] dello statuto sociale il Sig. {pre
         formatted_total_quota_euro = f"{total_quota_euro:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') # Formato italiano
         formatted_total_quota_percentuale = f"{total_quota_percentuale:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') # Formato italiano
 
-        preview += f"\nnonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_total_quota_euro} pari al {formatted_total_quota_percentuale}% del Capitale Sociale:\n"
-        
-        for socio in soci_presenti:
-            nome = socio.get('nome', '')
-            quota_euro = socio.get('quota_euro', '')
-            quota_percentuale = socio.get('quota_percentuale', '')
-            tipo_partecipazione = socio.get('tipo_partecipazione', 'Diretto')
-            delegato = socio.get('delegato', '').strip()
-            tipo_soggetto = socio.get('tipo_soggetto', 'Persona Fisica')
-            rappresentante_legale = socio.get('rappresentante_legale', '').strip()
+        if soci_presenti:
+            preview += f"\nnonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_total_quota_euro} pari al {formatted_total_quota_percentuale}% del Capitale Sociale:\n"
             
-            # Gestione completa: delegati e rappresentanti legali
-            if tipo_partecipazione == 'Delegato' and delegato:
-                if tipo_soggetto == 'Società':
-                    preview += f"il Sig. {delegato} delegato della società {nome}"
-                    if rappresentante_legale:
-                        preview += f" (nella persona del legale rappresentante {rappresentante_legale})"
-                    preview += f" recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale\n"
-                else:
-                    preview += f"il Sig. {delegato} delegato del socio {nome} recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale\n"
-            else:
-                if tipo_soggetto == 'Società':
-                    if rappresentante_legale:
-                        preview += f"la società {nome} nella persona del legale rappresentante {rappresentante_legale} recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale\n"
+            for socio in soci_presenti:
+                nome = socio.get('nome', '')
+                quota_euro = socio.get('quota_euro', '')
+                quota_percentuale = socio.get('quota_percentuale', '')
+                tipo_partecipazione = socio.get('tipo_partecipazione', 'Diretto')
+                delegato = socio.get('delegato', '').strip()
+                tipo_soggetto = socio.get('tipo_soggetto', 'Persona Fisica')
+                rappresentante_legale = socio.get('rappresentante_legale', '').strip()
+                
+                # Gestione completa: delegati e rappresentanti legali
+                if tipo_partecipazione == 'Delegato' and delegato:
+                    if tipo_soggetto == 'Società':
+                        preview += f"il Sig. {delegato} delegato della società {nome}"
+                        if rappresentante_legale:
+                            preview += f" (nella persona del legale rappresentante {rappresentante_legale})"
+                        preview += f" recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale\n"
                     else:
-                        preview += f"la società {nome} recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale\n"
+                        preview += f"il Sig. {delegato} delegato del socio {nome} recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale\n"
                 else:
-                    preview += f"il Sig. {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale\n"
+                    if tipo_soggetto == 'Società':
+                        if rappresentante_legale:
+                            preview += f"la società {nome} nella persona del legale rappresentante {rappresentante_legale} recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale\n"
+                        else:
+                            preview += f"la società {nome} recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale\n"
+                    else:
+                        preview += f"il Sig. {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale\n"
         
+        if soci_assenti:
+            preview += "\nRisultano invece assenti i seguenti soci:\n"
+            for socio in soci_assenti:
+                if isinstance(socio, dict) and socio.get('nome'):
+                    preview += f"- {socio.get('nome')}\n"
+
         preview += """
 2 - che gli intervenuti sono legittimati alla presente assemblea;
 3 - che tutti gli intervenuti si dichiarano edotti sugli argomenti posti all'ordine del giorno.
@@ -852,8 +559,14 @@ _____________________                  _____________________
                     p.add_run(f"il Sig. {altro.get('nome', '')} in qualità di {altro.get('qualita', '')}")
         
         # Calcola il totale delle quote dei soci presenti
-        soci = data.get('soci', [])
-        soci_presenti = [s for s in soci if s.get('presente', False)]
+        soci_presenti = data.get('soci_presenti', [])
+        soci_assenti = data.get('soci_assenti', [])
+
+        # Fallback per mantenere compatibilità se le nuove chiavi non ci sono
+        if not soci_presenti and not soci_assenti and 'soci' in data:
+            soci_presenti = [s for s in data.get('soci', []) if s.get('presente', True)]
+            soci_assenti = [s for s in data.get('soci', []) if not s.get('presente', True)]
+
         total_quota_euro = 0.0
         total_quota_percentuale = 0.0
 
@@ -876,46 +589,55 @@ _____________________                  _____________________
         formatted_total_quota_percentuale = f"{total_quota_percentuale:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') # Formato italiano
         
         # Soci
-        p = doc.add_paragraph()
-        p.add_run(f"nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_total_quota_euro} pari al {formatted_total_quota_percentuale}% del Capitale Sociale:")
-        
-        for socio in soci_presenti:
-            nome = socio.get('nome', '')
-            quota_euro = socio.get('quota_euro', '')
-            quota_percentuale = socio.get('quota_percentuale', '')
-            tipo_partecipazione = socio.get('tipo_partecipazione', 'Diretto')
-            delegato = socio.get('delegato', '').strip()
-            tipo_soggetto = socio.get('tipo_soggetto', 'Persona Fisica')
-            rappresentante_legale = socio.get('rappresentante_legale', '').strip()
-            
+        if soci_presenti:
             p = doc.add_paragraph()
+            p.add_run(f"nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_total_quota_euro} pari al {formatted_total_quota_percentuale}% del Capitale Sociale:")
             
-            # Gestione completa: delegati e rappresentanti legali
-            if tipo_partecipazione == 'Delegato' and delegato:
-                if tipo_soggetto == 'Società':
-                    text = f"il Sig. {delegato} delegato della società {nome}"
-                    if rappresentante_legale:
-                        text += f" (nella persona del legale rappresentante {rappresentante_legale})"
-                    text += f" recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale"
-                else:
-                    text = f"il Sig. {delegato} delegato del socio {nome} recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale"
-            else:
-                if tipo_soggetto == 'Società':
-                    if rappresentante_legale:
-                        text = f"la società {nome} nella persona del legale rappresentante {rappresentante_legale} recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale"
+            for socio in soci_presenti:
+                nome = socio.get('nome', '')
+                quota_euro = socio.get('quota_euro', '')
+                quota_percentuale = socio.get('quota_percentuale', '')
+                tipo_partecipazione = socio.get('tipo_partecipazione', 'Diretto')
+                delegato = socio.get('delegato', '').strip()
+                tipo_soggetto = socio.get('tipo_soggetto', 'Persona Fisica')
+                rappresentante_legale = socio.get('rappresentante_legale', '').strip()
+                
+                p = doc.add_paragraph()
+                
+                # Gestione completa: delegati e rappresentanti legali
+                if tipo_partecipazione == 'Delegato' and delegato:
+                    if tipo_soggetto == 'Società':
+                        text = f"il Sig. {delegato} delegato della società {nome}"
+                        if rappresentante_legale:
+                            text += f" (nella persona del legale rappresentante {rappresentante_legale})"
+                        text += f" recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale"
                     else:
-                        text = f"la società {nome} recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale"
+                        text = f"il Sig. {delegato} delegato del socio {nome} recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale"
                 else:
-                    text = f"il Sig. {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale"
-            
-            p.add_run(text)
+                    if tipo_soggetto == 'Società':
+                        if rappresentante_legale:
+                            text = f"la società {nome} nella persona del legale rappresentante {rappresentante_legale} recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale"
+                        else:
+                            text = f"la società {nome} recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale"
+                    else:
+                        text = f"il Sig. {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_percentuale}% del Capitale Sociale"
+                
+                p.add_run(text)
+
+        if soci_assenti:
+            p = doc.add_paragraph()
+            p.add_run("Risultano invece assenti i seguenti soci:")
+            for socio in soci_assenti:
+                if isinstance(socio, dict) and socio.get('nome'):
+                    p = doc.add_paragraph()
+                    p.add_run(f"- {socio.get('nome')}")
         
         # Dichiarazioni finali
         p = doc.add_paragraph()
-        p.add_run("2 - che gli intervenuti sono legittimati alla presente assemblea;")
+        p.add_run("3 - che gli intervenuti sono legittimati alla presente assemblea;")
         
         p = doc.add_paragraph()
-        p.add_run("3 - che tutti gli intervenuti si dichiarano edotti sugli argomenti posti all'ordine del giorno.")
+        p.add_run("4 - che tutti gli intervenuti si dichiarano edotti sugli argomenti posti all'ordine del giorno.")
         
         # Segretario
         p = doc.add_paragraph()

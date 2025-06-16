@@ -35,150 +35,46 @@ class VerbaleRevocaSindaciTemplate(BaseVerbaleTemplate):
         ]
     
     def get_form_fields(self, extracted_data: dict) -> dict:
-        """Genera i campi del form per Streamlit"""
-        form_data = {}
-        
-        # Dati azienda standardizzati
-        form_data.update(CommonDataHandler.extract_and_populate_company_data(extracted_data))
-        
-        # Dati assemblea standardizzati
-        form_data.update(CommonDataHandler.extract_and_populate_assembly_data(extracted_data))
-        
-        # Configurazioni specifiche
+        """Genera i campi del form per Streamlit."""
+        # Chiama il metodo della classe base per ottenere i campi comuni
+        form_data = super().get_form_fields(extracted_data)
+
         st.subheader("⚖️ Configurazioni Specifiche Revoca Sindaci")
         
         col1, col2 = st.columns(2)
         with col1:
-            form_data["ruolo_presidente"] = st.selectbox("Ruolo del presidente", 
-                                                        ["Amministratore Unico", 
-                                                         "Presidente del Consiglio di Amministrazione",
-                                                         "Altro (come da statuto)"])
-            form_data["tipo_collegio"] = st.selectbox("Tipo di collegio sindacale", 
-                                                     ["Collegio Sindacale (3 membri)", 
-                                                      "Sindaco Unico"])
+            form_data["tipo_organo_controllo"] = st.selectbox(
+                "Tipo Organo di Controllo",
+                ["Collegio Sindacale", "Sindaco Unico"],
+                key="tipo_organo_controllo_revoca"
+            )
         with col2:
-            form_data["include_consiglio_amministrazione"] = st.checkbox("Include Consiglio di Amministrazione", value=False)
-            form_data["include_revisore"] = st.checkbox("Include revisore contabile", value=False)
-        
-        # Partecipanti standardizzati
-        participants_data = CommonDataHandler.extract_and_populate_participants_data(
-            extracted_data, 
-            unique_key_suffix="revoca_sindaci"
-        )
-        form_data.update(participants_data)
-        
-        # Sindaci in carica da revocare
+            form_data["motivo_revoca"] = st.selectbox(
+                "Motivo della revoca",
+                ["Giusta causa", "Dimissioni volontarie", "Scadenza mandato", "Decesso", "Altro"],
+                key="motivo_revoca_sindaci"
+            )
+
+        # Dati dei sindaci da revocare
         st.subheader("👥 Sindaci da Revocare")
-        
-        if form_data["tipo_collegio"] == "Collegio Sindacale (3 membri)":
-            num_sindaci = 3
-            st.info("Collegio Sindacale completo (Presidente + 2 Sindaci Effettivi)")
-        else:
-            num_sindaci = 1
-            st.info("Sindaco Unico")
-        
-        sindaci_revocandi = []
-        for i in range(num_sindaci):
-            if num_sindaci == 1:
-                st.write("**Sindaco Unico**")
-            else:
-                ruolo = "Presidente" if i == 0 else f"Sindaco Effettivo {i}"
-                st.write(f"**{ruolo}**")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                nome = st.text_input(f"Nome e Cognome", key=f"sindaco_nome_{i}",
-                                   placeholder="es. Dott. Mario Rossi")
-            with col2:
-                titolo = st.text_input(f"Titolo/Qualifica", key=f"sindaco_titolo_{i}",
-                                     placeholder="es. Dottore Commercialista",
-                                     value="Dott.")
-            
-            if nome:
-                sindaci_revocandi.append({
-                    "nome": nome,
-                    "titolo": titolo,
-                    "ruolo": "Sindaco Unico" if num_sindaci == 1 else ("Presidente del Collegio Sindacale" if i == 0 else "Sindaco Effettivo")
-                })
-        
-        form_data["sindaci_revocandi"] = sindaci_revocandi
-        
-        # Dettagli delle irregolarità
-        st.subheader("📋 Irregolarità e Circostanze")
-        
-        form_data["occasione_irregolarita"] = st.text_area(
-            "Occasione in cui sono emerse le irregolarità",
-            placeholder="es. in occasione di controllo interno, audit, verifica documentale, etc.",
-            help="Descrivi quando e in quale contesto sono emerse le irregolarità"
+        sindaci_revocare = st.text_area(
+            "Nomi dei sindaci da revocare (separati da virgola)",
+            help="Es. Mario Rossi, Luigi Bianchi",
+            key="sindaci_revocare_list"
         )
-        
-        form_data["gravi_irregolarita"] = st.text_area(
-            "Descrizione delle gravi irregolarità",
-            placeholder="Descrivi dettagliatamente le gravi irregolarità commesse dai sindaci...\n\nEsempio:\n- Mancata partecipazione alle riunioni senza giustificato motivo\n- Omessa vigilanza sui controlli interni\n- Violazione dei doveri di diligenza e correttezza\n- Altri comportamenti contrari ai doveri dell'ufficio",
-            height=150,
-            help="Elencare in modo dettagliato le irregolarità che giustificano la revoca"
-        )
-        
-        # Dichiarazioni di altri soggetti
-        st.subheader("💬 Dichiarazioni Aggiuntive")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            form_data["soggetto_dichiarante"] = st.text_input("Nome del soggetto che prende la parola", 
-                                                             placeholder="es. Sig. Luigi Bianchi")
-        with col2:
-            form_data["ruolo_dichiarante"] = st.selectbox("Ruolo del dichiarante", 
-                                                         ["Socio", "Amministratore", "Altro"])
-        
-        form_data["dichiarazione_aggiuntiva"] = st.text_area(
-            "Dichiarazione del soggetto",
-            placeholder="Inserire la dichiarazione del soggetto che prende la parola...",
-            help="Eventuale dichiarazione di sostegno o chiarimento"
-        )
-        
-        # Votazione
-        st.subheader("🗳️ Configurazioni Votazione")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            form_data["votazione_unanime"] = st.checkbox("Votazione unanime", value=True)
-            if not form_data["votazione_unanime"]:
-                form_data["voti_contrari"] = st.text_input("Voti contrari", 
-                                                          placeholder="es. Sig. Rossi, Sig. Verdi")
-                form_data["astensioni"] = st.text_input("Astensioni", 
-                                                       placeholder="es. Sig. Neri")
-        
-        with col2:
-            form_data["ricorso_tribunale"] = st.checkbox("Include incarico ricorso al Tribunale", value=True)
-            form_data["chi_presenta_ricorso"] = st.selectbox("Chi presenta il ricorso", 
-                                                           ["Amministratore Unico", 
-                                                            "Presidente del Consiglio di Amministrazione"])
-        
-        # Configurazioni aggiuntive
-        st.subheader("⚙️ Configurazioni Aggiuntive")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            form_data["include_traduzione"] = st.checkbox("Include sezione traduzione", value=False)
-        with col2:
-            form_data["include_presenti_qualita"] = st.checkbox("Include sezione 'presenti in qualità di'", value=False)
-        
-        # Traduzione se necessaria
-        if form_data["include_traduzione"]:
-            st.subheader("🌐 Traduzione")
-            col1, col2 = st.columns(2)
-            with col1:
-                form_data["persona_traduzione"] = st.text_input("Persona che necessita traduzione")
-            with col2:
-                form_data["lingua_traduzione"] = st.selectbox("Lingua", 
-                                                             ["Inglese", "Francese", "Tedesco", "Spagnolo"])
-        
-        # Note aggiuntive
-        st.subheader("📝 Note Aggiuntive")
-        form_data["note_aggiuntive"] = st.text_area("Note aggiuntive", 
-                                                  placeholder="Eventuali note specifiche sulla revoca...",
-                                                  height=80)
-        
+        form_data["sindaci_da_revocare"] = [s.strip() for s in sindaci_revocare.split(",") if s.strip()]
+
+        # Eventuale nomina di nuovi sindaci
+        st.subheader("Nomina Nuovi Sindaci (Opzionale)")
+        form_data['nomina_nuovi_sindaci'] = st.checkbox("Procedere con la nomina di nuovi sindaci?", key="nomina_nuovi_sindaci_revoca")
+
+        if form_data.get('nomina_nuovi_sindaci'):
+            # Qui si potrebbero aggiungere i campi per la nomina dei nuovi sindaci,
+            # simile al template di nomina del collegio sindacale.
+            st.info("La sezione per la nomina di nuovi sindaci è da implementare.")
+            # Esempio:
+            # form_data['nuovi_sindaci'] = st.data_editor(...)
+
         return form_data
     
     def show_preview(self, form_data: dict):
@@ -204,11 +100,17 @@ class VerbaleRevocaSindaciTemplate(BaseVerbaleTemplate):
     def _generate_preview_text(self, data: dict) -> str:
         """Genera il testo di anteprima"""
         try:
-            # Header
-            header = f"""{data.get('denominazione', '[Denominazione]')}
-Sede in {data.get('sede_legale', '[Sede]')}
-Capitale sociale Euro {data.get('capitale_sociale', '[Capitale]')} i.v.
-Codice fiscale: {data.get('codice_fiscale', '[CF]')}
+            # Header uniformato
+            denominazione = data.get('denominazione', '[Denominazione]')
+            sede_legale = data.get('sede_legale', '[Sede]')
+            capitale_sociale_raw = data.get('capitale_versato') or data.get('capitale_deliberato') or data.get('capitale_sociale', '[Capitale]')
+            capitale_sociale = CommonDataHandler.format_currency(capitale_sociale_raw)
+            codice_fiscale = data.get('codice_fiscale', '[CF]')
+
+            header = f"""{denominazione}
+Sede in {sede_legale}
+Capitale sociale Euro {capitale_sociale} i.v.
+Codice fiscale: {codice_fiscale}
 
 Verbale di assemblea dei soci
 del {data.get('data_assemblea', '[Data]').strftime('%d/%m/%Y') if hasattr(data.get('data_assemblea'), 'strftime') else '[Data]'}
@@ -283,8 +185,8 @@ il revisore contabile Dott. […]]"""
                         pass # Ignora valori non numerici
             
             # Formatta i totali per la visualizzazione
-            formatted_total_quota_euro = f"{total_quota_euro:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') # Formato italiano
-            formatted_total_quota_percentuale = f"{total_quota_percentuale:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') # Formato italiano
+            formatted_total_quota_euro = CommonDataHandler.format_currency(total_quota_euro)
+            formatted_total_quota_percentuale = CommonDataHandler.format_percentage(total_quota_percentuale)
 
             soci_section = f"\nnonché i seguenti soci o loro rappresentanti, [eventualmente così come iscritti a libro soci e] recanti complessivamente una quota pari a nominali euro {formatted_total_quota_euro} pari al {formatted_total_quota_percentuale}% del Capitale Sociale:"
             

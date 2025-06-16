@@ -38,43 +38,39 @@ class VerbaleAssembleaGenericoTemplate(BaseVerbaleTemplate):
         ]
     
     def get_form_fields(self, extracted_data: dict) -> dict:
-        """Genera i campi del form per Streamlit utilizzando il CommonDataHandler"""
-        form_data = {}
+        """Genera i campi del form per Streamlit utilizzando il CommonDataHandler."""
+        # Chiama il metodo della classe base per ottenere i campi comuni
+        form_data = super().get_form_fields(extracted_data)
         
-        # Utilizza il CommonDataHandler per i dati standard
-        # Dati azienda standardizzati
-        form_data.update(CommonDataHandler.extract_and_populate_company_data(extracted_data))
+        # Rimuovi i campi specifici gestiti dalla classe base se necessario,
+        # per ridefinirli o personalizzarli qui.
+        # Esempio:
+        # form_data.pop("tipo_assemblea", None)
         
-        # Dati assemblea standardizzati
-        form_data.update(CommonDataHandler.extract_and_populate_assembly_data(extracted_data))
-        
-        # Campi specifici per assemblea generica
         st.subheader("📋 Configurazioni Specifiche Assemblea Generica")
         
+        # Campi specifici per assemblea generica
         col1, col2 = st.columns(2)
         with col1:
             form_data["ruolo_presidente"] = st.selectbox("Ruolo del presidente", 
-                                                        CommonDataHandler.get_standard_ruoli_presidente())
+                                                        CommonDataHandler.get_standard_ruoli_presidente(),
+                                                        key="ruolo_presidente_generico")
+            # Sovrascrive il tipo di assemblea della base con più opzioni
             form_data["tipo_assemblea"] = st.selectbox("Tipo assemblea", 
-                                                      ["Ordinaria", "Straordinaria", "Totalitaria"])
+                                                      ["Ordinaria", "Straordinaria", "Totalitaria"],
+                                                      key="tipo_assemblea_generico")
         with col2:
             form_data["modalita_partecipazione"] = st.selectbox("Modalità di partecipazione", 
-                                                               ["Presenza fisica", "Audioconferenza", "Mista"])
-            form_data["collegio_sindacale_presente"] = st.checkbox("Collegio Sindacale presente", value=False)
-        
-        # Partecipanti standardizzati usando il CommonDataHandler
-        participants_data = CommonDataHandler.extract_and_populate_participants_data(
-            extracted_data, 
-            unique_key_suffix="generico"
-        )
-        form_data.update(participants_data)
+                                                               ["Presenza fisica", "Audioconferenza", "Mista"],
+                                                               key="modalita_partecipazione_generico")
         
         # Ordine del giorno personalizzabile
         st.subheader("📋 Ordine del Giorno")
         default_odg = "1. [Inserire primo punto]\n2. [Inserire secondo punto]\n3. [Inserire terzo punto]"
         punti_odg = st.text_area("Punti all'ordine del giorno", 
                                 default_odg, height=120,
-                                help="Inserire i punti dell'ordine del giorno, uno per riga")
+                                help="Inserire i punti dell'ordine del giorno, uno per riga",
+                                key="punti_odg_generico")
         form_data["punti_ordine_giorno"] = [p.strip() for p in punti_odg.split("\n") if p.strip()]
         
         # Deliberazioni per ogni punto
@@ -86,18 +82,18 @@ class VerbaleAssembleaGenericoTemplate(BaseVerbaleTemplate):
             col1, col2 = st.columns([3, 1])
             with col1:
                 deliberazione = st.text_area(f"Deliberazione punto {i+1}", 
-                                           key=f"deliberazione_{i}",
+                                           key=f"deliberazione_{i}_generico",
                                            height=100,
                                            placeholder="Inserire la deliberazione presa dall'assemblea per questo punto")
             with col2:
                 tipo_voto = st.selectbox(f"Tipo voto", 
                                        ["Unanimità", "Maggioranza", "Con voti contrari", "Con astensioni"],
-                                       key=f"voto_{i}")
+                                       key=f"voto_{i}_generico")
                 
                 dettagli_voto = ""
                 if tipo_voto in ["Con voti contrari", "Con astensioni"]:
                     dettagli_voto = st.text_input(f"Dettagli voto", 
-                                                key=f"dettagli_voto_{i}",
+                                                key=f"dettagli_voto_{i}_generico",
                                                 placeholder="es. voto contrario dei Sigg. ...")
             
             form_data["deliberazioni"].append({
@@ -113,16 +109,19 @@ class VerbaleAssembleaGenericoTemplate(BaseVerbaleTemplate):
         with col1:
             form_data["presenti_aggiuntivi"] = st.text_area("Altri presenti (se previsti)", 
                                                           placeholder="es. revisore contabile, consulenti, ecc.",
-                                                          height=80)
+                                                          height=80,
+                                                          key="presenti_aggiuntivi_generico")
         with col2:
             form_data["note_linguistiche"] = st.text_area("Note linguistiche/traduzione", 
                                                         placeholder="es. traduzione dall'italiano all'inglese",
-                                                        height=80)
+                                                        height=80,
+                                                        key="note_linguistiche_generico")
         
         # Orario di chiusura
         form_data["ora_chiusura"] = st.time_input("Ora di chiusura assemblea", 
                                                  value=None,
-                                                 help="Lasciare vuoto se da compilare manualmente")
+                                                 help="Lasciare vuoto se da compilare manualmente",
+                                                 key="ora_chiusura_generico")
         
         return form_data
     
@@ -187,41 +186,50 @@ l'{data.get('ruolo_presidente', 'Amministratore Unico')} nella persona del sudde
                     presidente_section += f"\nil Sig {nome_admin}"
             
             # Collegio sindacale se presente
-            if data.get('collegio_sindacale_presente', False):
+            if data.get('include_collegio_sindacale', False):
                 presidente_section += "\n[eventualmente\nper il Collegio Sindacale\nil Dott. [Nome]\nil Dott. [Nome]\nil Dott. [Nome]]"
             
+            # Revisore se presente
+            if data.get('include_revisore', False):
+                nome_rev = data.get('nome_revisore', '[NOME REVISORE]')
+                presidente_section += f"\n[eventualmente\nil revisore contabile Dott. {nome_rev}]"
+            
             # Soci presenti
-            soci = data.get('soci', [])
+            # Fallback per la retrocompatibilità
+            if 'soci_presenti' not in data:
+                data['soci_presenti'] = data.get('soci', [])
+                data['soci_assenti'] = []
+
+            soci_presenti = data.get('soci_presenti', [])
+            soci_assenti = data.get('soci_assenti', [])
             total_quota_euro = 0.0
             total_quota_percentuale = 0.0
 
-            for socio in soci:
+            for socio in soci_presenti:
                 if isinstance(socio, dict):
                     try:
-                        # Rimuovi punti e sostituisci virgola con punto per la conversione a float
                         quota_euro_str = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
                         total_quota_euro += float(quota_euro_str)
-                    except ValueError:
-                        pass # Ignora valori non numerici
+                    except (ValueError, TypeError):
+                        pass 
                     try:
                         quota_percentuale_str = str(socio.get('quota_percentuale', '0')).replace('.', '').replace(',', '.')
                         total_quota_percentuale += float(quota_percentuale_str)
-                    except ValueError:
-                        pass # Ignora valori non numerici
+                    except (ValueError, TypeError):
+                        pass
             
             # Formatta i totali per la visualizzazione
-            formatted_total_quota_euro = f"{total_quota_euro:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') # Formato italiano
-            formatted_total_quota_percentuale = f"{total_quota_percentuale:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.') # Formato italiano
+            formatted_total_quota_euro = f"{total_quota_euro:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            formatted_total_quota_percentuale = f"{total_quota_percentuale:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
 
             soci_section = f"\nnonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_total_quota_euro} pari al {formatted_total_quota_percentuale}% del Capitale Sociale:"
             
-            for socio in soci:
+            for socio in soci_presenti:
                 if isinstance(socio, dict):
                     nome = socio.get('nome', '[Nome Socio]')
                     quota_value = socio.get('quota_euro', '')
                     percentuale_value = socio.get('quota_percentuale', '')
                     
-                    # Gestione robusta dei valori nulli o vuoti
                     quota = '[Quota]' if quota_value is None or str(quota_value).strip() == '' else str(quota_value).strip()
                     percentuale = '[%]' if percentuale_value is None or str(percentuale_value).strip() == '' else str(percentuale_value).strip()
                     
@@ -229,11 +237,21 @@ l'{data.get('ruolo_presidente', 'Amministratore Unico')} nella persona del sudde
                     
                     if tipo_partecipazione == 'Delegato':
                         delegato = socio.get('delegato', '')
-                        soci_section += f"\nil Sig {delegato} delegato del socio Sig {nome} recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale"
+                        socio_line = f"{delegato} delegato del socio {nome} – quota euro {quota} ({percentuale}%)"
                     else:
-                        soci_section += f"\nil Sig {nome} socio recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale"
+                        socio_line = f"{nome} – quota euro {quota} ({percentuale}%)"
+                    soci_section += f"\n{socio_line}"
                 else:
-                    soci_section += f"\nil Sig {socio} socio"
+                    socio_line = f"Sig. {socio}"
+                    soci_section += f"\n{socio_line}"
+
+            # Aggiunge soci assenti se presenti
+            if soci_assenti:
+                soci_section += "\n\nRisultano invece assenti i seguenti soci:"
+                for socio in soci_assenti:
+                    nome = socio.get('nome', '[Nome Socio]')
+                    socio_line = f"Sig. {nome}"
+                    soci_section += f"\n{socio_line}"
             
             # Altri presenti se specificati
             altri_presenti_section = ""
@@ -469,135 +487,147 @@ Il Presidente                    Il Segretario
         doc.add_paragraph()
     
     def _add_opening_section(self, doc, data):
-        """Aggiunge la sezione di apertura"""
-        # Data e ora
+        font_name = 'Times New Roman'
+        
+        sede_legale = data.get('sede_legale', '[Sede]')
         data_assemblea = data.get('data_assemblea')
         ora_assemblea = data.get('ora_assemblea')
         
-        if hasattr(data_assemblea, 'strftime'):
-            data_str = data_assemblea.strftime('%d/%m/%Y')
-        else:
-            data_str = '[DATA]'
+        data_str = data_assemblea.strftime('%d/%m/%Y') if data_assemblea else '[Data]'
+        ora_str = ora_assemblea.strftime('%H:%M') if ora_assemblea else '[Ora]'
         
-        if hasattr(ora_assemblea, 'strftime'):
-            ora_str = ora_assemblea.strftime('%H:%M')
-        else:
-            ora_str = '[ORA]'
+        self.add_paragraph_with_font(doc, f"Oggi {data_str} alle ore {ora_str} presso la sede sociale {sede_legale}, si è tenuta l'assemblea generale dei soci, per discutere e deliberare sul seguente:", size=Pt(12), font_name=font_name)
         
-        text = f"Oggi {data_str} alle ore {ora_str} presso la sede sociale {data.get('sede_legale', '[SEDE]')}, si è tenuta l'assemblea generale dei soci, per discutere e deliberare sul seguente:"
+        self.add_paragraph_with_font(doc, "Ordine del giorno", size=Pt(12), font_name=font_name, alignment=WD_ALIGN_PARAGRAPH.CENTER, bold=True)
         
-        p = doc.add_paragraph(text)
-        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        
-        # Ordine del giorno
-        doc.add_paragraph()
-        p = doc.add_paragraph()
-        run = p.add_run("Ordine del giorno")
-        run.font.bold = True
-        
-        # Punti dell'ordine del giorno
-        punti = data.get('punti_ordine_giorno', [])
-        for i, punto in enumerate(punti, 1):
-            p = doc.add_paragraph(f"{i}. {punto}")
-    
+        for i, punto in enumerate(data.get('punti_ordine_giorno', []), 1):
+            self.add_paragraph_with_font(doc, f"{i}. {punto.replace('[', '').replace(']', '')}", size=Pt(12), font_name=font_name, left_indent=Inches(0.5))
+
     def _add_participants_section(self, doc, data):
         """Aggiunge la sezione dei partecipanti"""
-        doc.add_paragraph()
+        font_name = 'Times New Roman'
         
-        ruolo_presidente = data.get('ruolo_presidente', 'Amministratore Unico')
-        presidente = data.get('presidente', '[PRESIDENTE]')
+        presidente_text = f"Assume la presidenza ai sensi dell'art. […] dello statuto sociale il Sig. {data.get('presidente', '[Presidente]')} {data.get('ruolo_presidente', 'Amministratore Unico')}, il quale dichiara e constata:"
+        self.add_paragraph_with_font(doc, presidente_text, size=Pt(12), font_name=font_name, space_after=Pt(6))
         
-        text = f"Assume la presidenza ai sensi dell'art. […] dello statuto sociale il Sig. {presidente} {ruolo_presidente}, il quale dichiara e constata:"
-        
-        p = doc.add_paragraph(text)
-        p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-        
-        # Punto 1 - audioconferenza
-        p = doc.add_paragraph("1 - che (come indicato anche nell'avviso di convocazione ed in conformità alle previsioni dell'art. […] dello statuto sociale) l'intervento all'assemblea può avvenire anche in audioconferenza")
-        
-        # Punto 2 - presenti
-        p = doc.add_paragraph("2 - che sono presenti/partecipano all'assemblea:")
-        p = doc.add_paragraph(f"l'{ruolo_presidente} nella persona del suddetto Presidente Sig. {presidente}")
-        
-        # Amministratori aggiuntivi
+        statements = [
+            "che (come indicato anche nell'avviso di convocazione ed in conformità alle previsioni dell'art. […] dello statuto sociale) l'intervento all'assemblea può avvenire anche in audioconferenza",
+            f"che sono presenti/partecipano all'assemblea:\nl'{data.get('ruolo_presidente', 'Amministratore Unico')} nella persona del suddetto Presidente Sig. {data.get('presidente', '[Presidente]')}"
+        ]
+
+        # Aggiunge amministratori se presenti
         amministratori = data.get('amministratori', [])
-        if len(amministratori) > 1:
-            p = doc.add_paragraph("[oppure")
-            p = doc.add_paragraph("per il Consiglio di Amministrazione:")
+        if amministratori and len(amministratori) > 1:
+            admin_list = "[oppure\nper il Consiglio di Amministrazione:"
             for admin in amministratori:
                 nome_admin = admin.get('nome', '') if isinstance(admin, dict) else str(admin)
-                p = doc.add_paragraph(f"il Sig {nome_admin}")
-            p = doc.add_paragraph("assente giustificato il Sig […] il quale ha tuttavia rilasciato apposita dichiarazione scritta, conservata agli atti della Società, dalla quale risulta che il medesimo è stato informato su tutti gli argomenti posti all'ordine del giorno e che lo stesso non si oppone alla trattazione degli stessi]")
+                admin_list += f"\nil Sig {nome_admin}"
+            statements.append(admin_list)
         
-        # Collegio sindacale
-        if data.get('collegio_sindacale_presente', False):
-            p = doc.add_paragraph("[eventualmente")
-            p = doc.add_paragraph("per il Collegio Sindacale")
-            p = doc.add_paragraph("il Dott. […]")
-            p = doc.add_paragraph("il Dott. […]")
-            p = doc.add_paragraph("il Dott. […]")
-            p = doc.add_paragraph("[oppure")
-            p = doc.add_paragraph("il Sindaco Unico nella persona del Sig. […]]]")
+        # Collegio sindacale se presente
+        if data.get('include_collegio_sindacale', False):
+            statements.append("[eventualmente\nper il Collegio Sindacale\nil Dott. [Nome]\nil Dott. [Nome]\nil Dott. [Nome]]")
+            
+        # Revisore se presente
+        if data.get('include_revisore', False):
+            nome_rev = data.get('nome_revisore', '[NOME REVISORE]')
+            statements.append(f"[eventualmente\nil revisore contabile Dott. {nome_rev}]")
         
-        # Altri presenti
-        if data.get('presenti_aggiuntivi'):
-            p = doc.add_paragraph("[eventualmente, se invitato")
-            p = doc.add_paragraph(data.get('presenti_aggiuntivi'))
+        for i, statement in enumerate(statements, 1):
+             self.add_paragraph_with_font(doc, f"{i} - {statement}", size=Pt(12), font_name=font_name, left_indent=Inches(0.5))
         
-        # Soci
-        p = doc.add_paragraph("nonché i seguenti soci o loro rappresentanti, [eventualmente così come iscritti a libro soci e] recanti complessivamente una quota pari a nominali euro […] pari al […]% del Capitale Sociale:")
+        # Fallback per la retrocompatibilità
+        if 'soci_presenti' not in data:
+            data['soci_presenti'] = data.get('soci', [])
+            data['soci_assenti'] = []
+
+        soci_presenti = data.get('soci_presenti', [])
+        soci_assenti = data.get('soci_assenti', [])
+
+        # Soci presenti
+        total_quota_euro = 0.0
+        total_quota_percentuale = 0.0
+
+        for socio in soci_presenti:
+            if isinstance(socio, dict):
+                try:
+                    quota_euro_str = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
+                    total_quota_euro += float(quota_euro_str)
+                except (ValueError, TypeError):
+                    pass
+                try:
+                    quota_percentuale_str = str(socio.get('quota_percentuale', '0')).replace('.', '').replace(',', '.')
+                    total_quota_percentuale += float(quota_percentuale_str)
+                except (ValueError, TypeError):
+                    pass
         
-        soci = data.get('soci', [])
-        for socio in soci:
+        formatted_total_quota_euro = f"{total_quota_euro:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+        formatted_total_quota_percentuale = f"{total_quota_percentuale:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
+        soci_text = f"nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_total_quota_euro} pari al {formatted_total_quota_percentuale}% del Capitale Sociale:"
+        self.add_paragraph_with_font(doc, soci_text, size=Pt(12), font_name=font_name, space_before=Pt(12))
+        
+        for socio in soci_presenti:
             if isinstance(socio, dict):
                 nome = socio.get('nome', '[Nome Socio]')
                 quota_value = socio.get('quota_euro', '')
                 percentuale_value = socio.get('quota_percentuale', '')
                 
-                # Gestione robusta dei valori nulli o vuoti
                 quota = '[Quota]' if quota_value is None or str(quota_value).strip() == '' else str(quota_value).strip()
                 percentuale = '[%]' if percentuale_value is None or str(percentuale_value).strip() == '' else str(percentuale_value).strip()
                 
                 tipo_partecipazione = socio.get('tipo_partecipazione', 'Diretta')
                 
                 if tipo_partecipazione == 'Delegato':
-                    delegato = socio.get('delegato', '[Delegato]')
-                    p = doc.add_paragraph(f"il Sig. {delegato} delegato del socio Sig {nome} recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale")
+                    delegato = socio.get('delegato', '')
+                    socio_line = f"{delegato} delegato del socio {nome} – quota euro {quota} ({percentuale}%)"
                 else:
-                    p = doc.add_paragraph(f"il Sig. {nome} socio [oppure delegato del socio Sig […]] recante una quota pari a nominali euro {quota} pari al {percentuale}% del Capitale Sociale")
+                    socio_line = f"{nome} – quota euro {quota} ({percentuale}%)"
+                p_socio = doc.add_paragraph(socio_line)
+                try:
+                    p_socio.style = 'List Bullet'
+                except Exception:
+                    p_socio.text = f"- {p_socio.text}"
+            else:
+                p_socio = doc.add_paragraph(f"Sig. {socio}")
+                try:
+                    p_socio.style = 'List Bullet'
+                except Exception:
+                    p_socio.text = f"- {p_socio.text}"
         
-        # Verifica legittimazione
-        p = doc.add_paragraph("2 - che gli intervenuti sono legittimati alla presente assemblea;")
-        p = doc.add_paragraph("3 - che tutti gli intervenuti si dichiarano edotti sugli argomenti posti all'ordine del giorno.")
-        
-        # Altri presenti aggiuntivi
+        # Aggiunge soci assenti se presenti
+        if soci_assenti:
+            self.add_paragraph_with_font(doc, "Risultano invece assenti i seguenti soci:", size=Pt(12), font_name=font_name, space_before=Pt(12))
+            for socio in soci_assenti:
+                nome = socio.get('nome', '[Nome Socio]')
+                p_socio = doc.add_paragraph(f"Sig. {nome}")
+                try:
+                    p_socio.style = 'List Bullet'
+                except Exception:
+                    p_socio.text = f"- {p_socio.text}"
+
+        # Altri presenti se specificati
         if data.get('presenti_aggiuntivi'):
-            p = doc.add_paragraph("[eventualmente")
-            p = doc.add_paragraph("4 - che sono altresì presenti, in qualità di:")
-            p = doc.add_paragraph(data.get('presenti_aggiuntivi'))
-    
+            altri_presenti_text = f"4 - che sono altresì presenti, in qualità di:\n{data.get('presenti_aggiuntivi')}"
+            self.add_paragraph_with_font(doc, altri_presenti_text, size=Pt(12), font_name=font_name, left_indent=Inches(0.5))
+
     def _add_preliminary_statements(self, doc, data):
-        """Aggiunge le dichiarazioni preliminari"""
-        doc.add_paragraph()
+        font_name = 'Times New Roman'
         
-        segretario = data.get('segretario', '[SEGRETARIO]')
-        p = doc.add_paragraph(f"I presenti all'unanimità chiamano a fungere da segretario il signor {segretario}, che accetta l'incarico.")
+        segretario_text = f"""I presenti all'unanimità chiamano a fungere da segretario il signor {data.get('segretario', '[Segretario]')}, che accetta l'incarico.
+
+Il Presidente identifica tutti i partecipanti e si accerta che ai soggetti collegati mediante mezzi di telecomunicazione sia consentito seguire la discussione, trasmettere e ricevere documenti, intervenire in tempo reale, con conferma da parte di ciascun partecipante."""
+        self.add_paragraph_with_font(doc, segretario_text, size=Pt(12), font_name=font_name)
         
-        p = doc.add_paragraph("Il Presidente identifica tutti i partecipanti e si accerta che ai soggetti collegati mediante mezzi di telecomunicazione sia consentito seguire la discussione, trasmettere e ricevere documenti, intervenire in tempo reale, con conferma da parte di ciascun partecipante.")
-        
-        # Note linguistiche
         if data.get('note_linguistiche'):
-            p = doc.add_paragraph("[eventualmente")
-            p = doc.add_paragraph(data.get('note_linguistiche'))
-        
-        p = doc.add_paragraph("Il Presidente constata e fa constatare che l'assemblea risulta regolarmente convocata [oppure totalitaria] e deve ritenersi valida ed atta a deliberare sul citato ordine del giorno.")
-        
-        p = doc.add_paragraph("Si passa quindi allo svolgimento dell'ordine del giorno.")
-        
-        # Separatore
-        p = doc.add_paragraph("*     *     *")
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
+            note_text = f"La presente riunione è stata tradotta da un interprete professionista dalla lingua italiana alla lingua inglese e viceversa."
+            self.add_paragraph_with_font(doc, note_text, size=Pt(12), font_name=font_name, space_before=Pt(12))
+
+        preliminary_text = """Il Presidente dichiara quindi che l'assemblea è regolarmente costituita e atta a deliberare sugli argomenti posti all'ordine del giorno.
+
+Inizia quindi la discussione sui punti all'ordine del giorno."""
+        self.add_paragraph_with_font(doc, preliminary_text, size=Pt(12), font_name=font_name, space_before=Pt(12))
+
     def _add_points_discussion(self, doc, data):
         """Aggiunge la discussione dei punti all'ordine del giorno"""
         deliberazioni = data.get('deliberazioni', [])

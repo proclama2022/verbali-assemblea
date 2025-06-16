@@ -391,8 +391,8 @@ except Exception as e:
                     pass # Ignora valori non numerici
 
             # Formattazione per l'output italiano
-            formatted_total_quota_euro = f"{total_quota_euro:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            formatted_total_quota_percentuale = f"{total_quota_percentuale:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+            formatted_total_quota_euro = CommonDataHandler.format_currency(total_quota_euro)
+            formatted_total_quota_percentuale = CommonDataHandler.format_percentage(total_quota_percentuale)
 
             preview += f"\n- Soci presenti: {len(soci)} per un totale di Euro {formatted_total_quota_euro} ({formatted_total_quota_percentuale}% del capitale sociale)\n"
 
@@ -470,7 +470,9 @@ except Exception as e:
                             'rappresentante_legale': rappresentante_legale
                         })
             
-            preview += f"nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {totale_quote_euro:,.2f} pari al {totale_quote_perc:.1f}% del Capitale Sociale:\n"
+            formatted_totale_quote_euro = CommonDataHandler.format_currency(totale_quote_euro)
+            formatted_totale_quote_perc = CommonDataHandler.format_percentage(totale_quote_perc)
+            preview += f"nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_totale_quote_euro} pari al {formatted_totale_quote_perc} del Capitale Sociale:\n"
             
             for socio_info in soci_presenti:
                 nome = socio_info['nome']

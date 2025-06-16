@@ -38,168 +38,66 @@ class VerbaleAmministratoreUnicoTemplate(BaseVerbaleTemplate):
         ]
     
     def get_form_fields(self, extracted_data: dict) -> dict:
-        """Genera i campi del form per Streamlit utilizzando il CommonDataHandler"""
-        form_data = {}
-        
-        # Utilizza il CommonDataHandler per i dati standard
-        # Dati azienda standardizzati
-        form_data.update(CommonDataHandler.extract_and_populate_company_data(extracted_data))
-        
-        # Dati assemblea standardizzati
-        form_data.update(CommonDataHandler.extract_and_populate_assembly_data(extracted_data))
-        
-        # Campi specifici per nomina amministratore unico
-        st.subheader("👤 Configurazioni Specifiche Amministratore Unico")
-        
+        """Genera i campi del form per Streamlit."""
+        # Chiama il metodo della classe base per ottenere i campi comuni
+        form_data = super().get_form_fields(extracted_data)
+
+        st.subheader("👤 Configurazioni Nomina Amministratore Unico")
+
+        # Campi specifici del template
         col1, col2 = st.columns(2)
         with col1:
-            form_data["ruolo_presidente"] = st.selectbox("Ruolo del presidente", 
-                                                        CommonDataHandler.get_standard_ruoli_presidente())
-            form_data["motivo_nomina"] = st.selectbox("Motivo della nomina", 
-                                                     ["Dimissioni dell\'organo in carica", 
-                                                      "Scadenza mandato", 
-                                                      "Decadenza dall'ufficio",
-                                                      "Prima nomina",
-                                                      "Altro"])
-            form_data["tipo_assemblea"] = st.selectbox("Tipo assemblea", 
-                                                      ["regolarmente convocata", 
-                                                       "totalitaria"])
+            form_data['motivo_nomina'] = st.selectbox(
+                "Motivo della nomina",
+                ["Dimissioni organo precedente", "Scadenza mandato", "Prima nomina", "Altro"],
+                key="motivo_nomina_au"
+            )
         with col2:
-            form_data["durata_incarico"] = st.selectbox("Durata incarico", 
-                                                       ["A tempo indeterminato fino a revoca o dimissioni",
-                                                        "Tre esercizi", 
-                                                        "Un esercizio", 
-                                                        "Altra durata"])
-            form_data["include_compensi"] = st.checkbox("Includi attribuzione compensi", value=True)
-            form_data["socio_proponente"] = st.text_input("Socio proponente la nomina", 
-                                                         placeholder="es. Mario Rossi")
+            form_data['durata_incarico'] = st.selectbox(
+                "Durata dell'incarico",
+                ["A tempo indeterminato", "Tre esercizi", "Un esercizio", "Altro"],
+                key="durata_incarico_au"
+            )
+
+        st.subheader("Dati del nuovo Amministratore Unico")
+        # Dati anagrafici
+        col1, col2 = st.columns(2)
+        with col1:
+            nuovo_amministratore_nome = st.text_input("Nome e Cognome", key="nuovo_admin_nome_au")
+            nuovo_amministratore_cf = st.text_input("Codice Fiscale", key="nuovo_admin_cf_au")
+        with col2:
+            nuovo_amministratore_luogo_nascita = st.text_input("Luogo di nascita", key="nuovo_admin_luogo_nascita_au")
+            nuovo_amministratore_data_nascita = st.date_input("Data di nascita", value=None, key="nuovo_admin_data_nascita_au")
+        nuovo_amministratore_domicilio = st.text_input("Domicilio", key="nuovo_admin_domicilio_au")
+
+        # Raggruppa i dati dell'amministratore in un dizionario
+        form_data['amministratore_unico'] = {
+            "nome": nuovo_amministratore_nome,
+            "codice_fiscale": nuovo_amministratore_cf,
+            "luogo_nascita": nuovo_amministratore_luogo_nascita,
+            "data_nascita": nuovo_amministratore_data_nascita,
+            "domicilio": nuovo_amministratore_domicilio,
+        }
         
-        # Opzioni avanzate
+        # Compenso
+        st.subheader("💰 Compenso Amministratore")
+        form_data['include_compensi'] = st.checkbox("È previsto un compenso?", value=True, key="include_compensi_au")
+        if form_data.get('include_compensi'):
+            col1, col2 = st.columns(2)
+            with col1:
+                form_data['compenso_annuo'] = st.text_input("Importo compenso annuo lordo (€)", "0,00", key="compenso_annuo_au")
+            with col2:
+                form_data['rimborso_spese'] = st.checkbox("Includi rimborso spese documentate", value=True, key="rimborso_spese_au")
+        
+        # Opzioni avanzate che erano presenti in versioni precedenti e sono utili alla generazione
         st.subheader("⚙️ Opzioni Avanzate del Verbale")
         col1, col2 = st.columns(2)
         with col1:
-            form_data["articolo_statuto_presidenza"] = st.text_input("Articolo statuto per presidenza", 
-                                                                    placeholder="es. 15", 
-                                                                    value="15")
-            form_data["articolo_statuto_audioconferenza"] = st.text_input("Articolo statuto per audioconferenza", 
-                                                                         placeholder="es. 16", 
-                                                                         value="16")
-            form_data["articolo_statuto_compensi"] = st.text_input("Articolo statuto per compensi", 
-                                                                  placeholder="es. 20", 
-                                                                  value="20")
+            form_data["articolo_statuto_presidenza"] = st.text_input("Articolo statuto per presidenza", "15", key="art_presidenza_au")
+            form_data["articolo_statuto_compensi"] = st.text_input("Articolo statuto per compensi", "20", key="art_compensi_au")
         with col2:
-            form_data["include_audioconferenza"] = st.checkbox("Includi riferimento audioconferenza", value=True)
-            form_data["include_collegio_sindacale"] = st.checkbox("Includi collegio sindacale", value=False)
-            form_data["include_revisore"] = st.checkbox("Includi revisore", value=False)
-        
-        if form_data["include_collegio_sindacale"]:
-            st.subheader("🔍 Collegio Sindacale")
-            col1, col2 = st.columns(2)
-            with col1:
-                form_data["tipo_organo_controllo"] = st.selectbox("Tipo organo di controllo", 
-                                                                ["Collegio Sindacale", 
-                                                                 "Sindaco Unico"])
-            
-            if form_data["tipo_organo_controllo"] == "Collegio Sindacale":
-                with col2:
-                    form_data["sindaci"] = []
-                    form_data["sindaci"].append(st.text_input("Presidente Collegio Sindacale", key="presidente_cs"))
-                    form_data["sindaci"].append(st.text_input("Sindaco Effettivo 1", key="sindaco_1"))
-                    form_data["sindaci"].append(st.text_input("Sindaco Effettivo 2", key="sindaco_2"))
-            else:
-                with col2:
-                    form_data["sindaco_unico"] = st.text_input("Nome Sindaco Unico")
-        
-        if form_data["include_revisore"]:
-            st.subheader("🔍 Revisore")
-            col1, col2 = st.columns(2)
-            with col1:
-                form_data["tipo_revisore"] = st.selectbox("Tipo revisore", 
-                                                         ["Revisore contabile", 
-                                                          "Società di revisione"])
-            with col2:
-                form_data["nome_revisore"] = st.text_input("Nome revisore o società")
-        
-        # Partecipanti standardizzati usando il CommonDataHandler
-        participants_data = CommonDataHandler.extract_and_populate_participants_data(
-            extracted_data, 
-            unique_key_suffix="admin_unico"
-        )
-        form_data.update(participants_data)
-        
-        # Dati dell'Amministratore Unico da nominare
-        st.subheader("👤 Amministratore Unico da Nominare")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            nome_admin = st.text_input("Nome e Cognome", 
-                                     placeholder="es. Mario Rossi")
-            data_nascita_admin = st.date_input("Data di nascita", 
-                                             value=None)
-            luogo_nascita_admin = st.text_input("Luogo di nascita", 
-                                              placeholder="es. Roma (RM)")
-        
-        with col2:
-            codice_fiscale_admin = st.text_input("Codice Fiscale", 
-                                                placeholder="es. RSSMRA80A01H501Z")
-            residenza_admin = st.text_input("Residenza", 
-                                          placeholder="es. Via Roma 1, Milano (MI)")
-            qualifica_admin = st.selectbox("Qualifica nella società", 
-                                         ["Socio", "Amministratore uscente", "Terzo"])
-        
-        form_data["amministratore_unico"] = {
-            "nome": nome_admin,
-            "data_nascita": data_nascita_admin,
-            "luogo_nascita": luogo_nascita_admin,
-            "codice_fiscale": codice_fiscale_admin,
-            "residenza": residenza_admin,
-            "qualifica": qualifica_admin
-        }
-        
-        # Compensi
-        if form_data["include_compensi"]:
-            st.subheader("💰 Compenso Amministratore Unico")
-            col1, col2 = st.columns(2)
-            with col1:
-                form_data["compenso_annuo"] = st.text_input("Compenso annuo (€)", 
-                                                           value="0,00",
-                                                           help="Compenso annuo lordo")
-                form_data["tipo_compenso"] = st.selectbox("Tipo di compenso", 
-                                                         ["Fisso", "Gettoni di presenza", "Percentuale utili", "Misto"])
-            with col2:
-                form_data["rimborso_spese"] = st.checkbox("Rimborso spese", value=True)
-                form_data["modalita_liquidazione"] = st.selectbox("Modalità liquidazione", 
-                                                                 ["Periodicamente", "Annuale", "A fine mandato"])
-        
-        # Verifiche e dichiarazioni
-        st.subheader("📋 Verifiche e Dichiarazioni")
-        col1, col2 = st.columns(2)
-        with col1:
-            form_data["verifica_requisiti"] = st.checkbox("Verifica requisiti di eleggibilità completata", value=True)
-            form_data["dichiarazioni_ricevute"] = st.checkbox("Dichiarazioni dell'amministratore ricevute", value=True)
-        with col2:
-            form_data["collegio_sindacale_presente"] = st.checkbox("Collegio Sindacale presente", value=False)
-            form_data["verifica_incompatibilita"] = st.checkbox("Verifica incompatibilità effettuata", value=True)
-        
-        # Note aggiuntive
-        st.subheader("📝 Note Aggiuntive")
-        form_data["note_aggiuntive"] = st.text_area("Note aggiuntive", 
-                                                  placeholder="Eventuali note specifiche sulla nomina...",
-                                                  height=80)
-        
-        # Votazione
-        st.subheader("🗳️ Votazione")
-        col1, col2 = st.columns(2)
-        with col1:
-            form_data["tipo_votazione"] = st.selectbox("Tipo di votazione", 
-                                                      ["Unanimità", 
-                                                       "Maggioranza"])
-        
-        if form_data["tipo_votazione"] == "Maggioranza":
-            with col2:
-                form_data["contrari"] = st.text_input("Soci contrari (separati da virgola)")
-                form_data["astenuti"] = st.text_input("Soci astenuti (separati da virgola)")
-        
+             form_data["socio_proponente"] = st.text_input("Socio proponente la nomina", "tutti i soci", key="socio_proponente_au")
+
         return form_data
     
     def show_preview(self, form_data: dict):
@@ -307,17 +205,19 @@ l'Amministratore Unico nella persona del suddetto Presidente Sig. {presidente}""
                 
                 if tipo_organo_controllo == 'Collegio Sindacale':
                     sindaci = data.get('sindaci', [])
-                    presidente_section += "\n\nper il Collegio Sindacale:"
-                    
-                    for i, sindaco in enumerate(sindaci):
-                        if i == 0 and sindaco:
-                            presidente_section += f"\nil Dott. {sindaco} - Presidente"
-                        elif sindaco:
-                            presidente_section += f"\nil Dott. {sindaco} - Sindaco Effettivo"
-                else:
-                    sindaco_unico = data.get('sindaco_unico', '')
-                    if sindaco_unico:
-                        presidente_section += f"\n\nil Sindaco Unico nella persona del Sig. {sindaco_unico}"
+                    sindaci_presenti = [s for s in sindaci if s.get('presente')]
+                    if sindaci_presenti:
+                        presidente_section += "\n\nper il Collegio Sindacale:"
+                        for sindaco in sindaci_presenti:
+                            carica = sindaco.get('carica', 'Sindaco Effettivo')
+                            nome_sindaco = sindaco.get('nome', '')
+                            if nome_sindaco:
+                                presidente_section += f"\nil Dott. {nome_sindaco} - {carica}"
+                else: # Sindaco Unico
+                    sindaci = data.get('sindaci', [])
+                    if sindaci and sindaci[0].get('nome'):
+                        sindaco_unico_nome = sindaci[0].get('nome')
+                        presidente_section += f"\n\nil Sindaco Unico nella persona del Sig. {sindaco_unico_nome}"
             
             # Revisore se presente
             if data.get('include_revisore', False):
@@ -331,7 +231,14 @@ l'Amministratore Unico nella persona del suddetto Presidente Sig. {presidente}""
                         presidente_section += f"\n\nil dott. {nome_revisore} in rappresentanza della società di revisione incaricata del controllo contabile"
             
             # Soci presenti
-            soci = data.get('soci', [])
+            soci_presenti = data.get('soci_presenti', [])
+            soci_assenti = data.get('soci_assenti', [])
+
+            # Fallback per mantenere compatibilità se le nuove chiavi non ci sono
+            if not soci_presenti and not soci_assenti and 'soci' in data:
+                soci_presenti = [s for s in data.get('soci', []) if s.get('presente', True)]
+                soci_assenti = [s for s in data.get('soci', []) if not s.get('presente', True)]
+            
             total_quota_euro = 0.0
             total_quota_percentuale = 0.0
             
@@ -344,7 +251,7 @@ l'Amministratore Unico nella persona del suddetto Presidente Sig. {presidente}""
             except ValueError:
                 pass
                 
-            for socio in soci:
+            for socio in soci_presenti:
                 if isinstance(socio, dict):
                     try:
                         quota_euro_str = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
@@ -374,62 +281,71 @@ l'Amministratore Unico nella persona del suddetto Presidente Sig. {presidente}""
             formatted_total_quota_percentuale = CommonDataHandler.format_percentage(total_quota_percentuale)
 
             # Sezione soci - inserita dopo il presidente e prima della sezione partecipanti
-            soci_section = f"""
+            soci_section = ""
+            if soci_presenti:
+                soci_section = f"""
 nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_total_quota_euro} pari al {formatted_total_quota_percentuale} del Capitale Sociale:"""
-            
-            for socio in soci:
-                if isinstance(socio, dict):
-                    nome = socio.get('nome', '[Nome Socio]')
-                    
-                    quota_euro_raw = socio.get('quota_euro', '')
-                    quota_percentuale_raw = socio.get('quota_percentuale', '')
-                    
-                    if not quota_euro_raw or str(quota_euro_raw).strip() == '':
-                        quota = '[Quota]'
-                    else:
-                        quota = CommonDataHandler.format_currency(quota_euro_raw)
-                    
-                    if quota_percentuale_raw and str(quota_percentuale_raw).strip() != '':
-                        try:
-                            perc_clean = str(quota_percentuale_raw).replace('%', '').replace(',', '.').strip()
-                            perc_val = float(perc_clean)
-                            percentuale = CommonDataHandler.format_percentage(perc_val)
-                        except ValueError:
-                            percentuale = str(quota_percentuale_raw)
-                            if not percentuale.endswith('%'):
-                                percentuale += '%'
-                    else:
-                        quota_euro_val = 0.0
-                        try:
-                            quota_euro_val = float(str(quota_euro_raw).replace('.', '').replace(',', '.'))
-                        except ValueError:
-                            pass
+                
+                for socio in soci_presenti:
+                    if isinstance(socio, dict):
+                        nome = socio.get('nome', '[Nome Socio]')
                         
-                        if quota_euro_val > 0 and capitale_sociale_float > 0:
-                            quota_percentuale_individuale = (quota_euro_val / capitale_sociale_float * 100)
-                            percentuale = CommonDataHandler.format_percentage(quota_percentuale_individuale)
+                        quota_euro_raw = socio.get('quota_euro', '')
+                        quota_percentuale_raw = socio.get('quota_percentuale', '')
+                        
+                        if not quota_euro_raw or str(quota_euro_raw).strip() == '':
+                            quota = '[Quota]'
                         else:
-                            percentuale = '[Percentuale]'
-                    
-                    tipo_soggetto = socio.get('tipo_soggetto', 'Persona Fisica')
-                    tipo_partecipazione = socio.get('tipo_partecipazione', 'Diretta')
-                    
-                    if tipo_partecipazione == 'Delegato':
-                        delegato = socio.get('delegato', '')
-                        if delegato:
-                            soci_section += f"\nil Sig {nome} delegato del socio Sig {delegato} recante una quota pari a nominali euro {quota} pari al {percentuale} del Capitale Sociale"
+                            quota = CommonDataHandler.format_currency(quota_euro_raw)
+                        
+                        if quota_percentuale_raw and str(quota_percentuale_raw).strip() != '':
+                            try:
+                                perc_clean = str(quota_percentuale_raw).replace('%', '').replace(',', '.').strip()
+                                perc_val = float(perc_clean)
+                                percentuale = CommonDataHandler.format_percentage(perc_val)
+                            except ValueError:
+                                percentuale = str(quota_percentuale_raw)
+                                if not percentuale.endswith('%'):
+                                    percentuale += '%'
+                        else:
+                            quota_euro_val = 0.0
+                            try:
+                                quota_euro_val = float(str(quota_euro_raw).replace('.', '').replace(',', '.'))
+                            except ValueError:
+                                pass
+                            
+                            if quota_euro_val > 0 and capitale_sociale_float > 0:
+                                quota_percentuale_individuale = (quota_euro_val / capitale_sociale_float * 100)
+                                percentuale = CommonDataHandler.format_percentage(quota_percentuale_individuale)
+                            else:
+                                percentuale = '[Percentuale]'
+                        
+                        tipo_soggetto = socio.get('tipo_soggetto', 'Persona Fisica')
+                        tipo_partecipazione = socio.get('tipo_partecipazione', 'Diretta')
+                        
+                        if tipo_partecipazione == 'Delegato':
+                            delegato = socio.get('delegato', '')
+                            if delegato:
+                                soci_section += f"\nil Sig {nome} delegato del socio Sig {delegato} recante una quota pari a nominali euro {quota} pari al {percentuale} del Capitale Sociale"
+                            else:
+                                soci_section += f"\nil Sig {nome} socio recante una quota pari a nominali euro {quota} pari al {percentuale} del Capitale Sociale"
                         else:
                             soci_section += f"\nil Sig {nome} socio recante una quota pari a nominali euro {quota} pari al {percentuale} del Capitale Sociale"
-                    else:
-                        soci_section += f"\nil Sig {nome} socio recante una quota pari a nominali euro {quota} pari al {percentuale} del Capitale Sociale"
-            
+
+            if soci_assenti:
+                soci_section += "\n\nRisultano invece assenti i seguenti soci:"
+                for socio in soci_assenti:
+                    if isinstance(socio, dict) and socio.get('nome'):
+                        soci_section += f"\n- il Sig. {socio.get('nome')}"
+
             # Concludi la sezione dei partecipanti
             partecipanti_section = """
-2 - che gli intervenuti sono legittimati alla presente assemblea;
-3 - che tutti gli intervenuti si dichiarano edotti sugli argomenti posti all'ordine del giorno."""
+
+3 - che gli intervenuti sono legittimati alla presente assemblea;
+4 - che tutti gli intervenuti si dichiarano edotti sugli argomenti posti all'ordine del giorno."""
             
             # Segretario
-            segretario = data.get('segretario', '[Segretario]')
+            segretario = data.get('segretario', '[SEGRETARIO]')
             segretario_section = f"""
 I presenti all'unanimità chiamano a fungere da segretario il signor {segretario}, che accetta l'incarico.
 
@@ -503,13 +419,22 @@ Segue breve discussione tra i soci al termine della quale si passa alla votazion
                 elif astenuti:
                     deliberazione_section += f" con l'astensione dei Sigg. {astenuti},"
             
+            # Recupera tutti i dati dell'amministratore
+            amministratore_unico = data.get('amministratore_unico', {})
+            nome_admin = amministratore_unico.get('nome', '[Nome Amministratore]')
+            cf_admin = amministratore_unico.get('codice_fiscale', '[CF]')
+            nato_a = amministratore_unico.get('luogo_nascita', '[Luogo di Nascita]')
+            data_nascita_raw = amministratore_unico.get('data_nascita')
+            nato_il = data_nascita_raw.strftime('%d/%m/%Y') if hasattr(data_nascita_raw, 'strftime') else '[Data di Nascita]'
+            domicilio = amministratore_unico.get('domicilio', '[Domicilio]')
+
             deliberazione_section += f"""
 
 l'assemblea
 
 d e l i b e r a:
 
-che la società sia amministrata da un amministratore unico nominato nella persona del sig. {nome_admin}
+di nominare quale Amministratore Unico della società il Sig. {nome_admin}, nato a {nato_a} il {nato_il}, codice fiscale {cf_admin} e residente in {domicilio}, il quale, presente all'assemblea, dichiara di accettare la carica e di non trovarsi in alcuna delle cause di ineleggibilità o di incompatibilità previste dalla legge e dallo statuto sociale.
 
 che l'amministratore resti in carica {durata_incarico.lower()}"""
 
@@ -781,6 +706,43 @@ Il Presidente                    Il Segretario
         run.font.name = 'Times New Roman'
         run.font.size = Pt(12)
         
+        # Collegio Sindacale (se presente)
+        if data.get('include_collegio_sindacale', False):
+            tipo_organo_controllo = data.get('tipo_organo_controllo', 'Collegio Sindacale')
+            if tipo_organo_controllo == 'Collegio Sindacale':
+                sindaci = data.get('sindaci', [])
+                sindaci_presenti = [s for s in sindaci if s.get('presente')]
+                if sindaci_presenti:
+                    try:
+                        p = doc.add_paragraph(style='BodyText')
+                    except KeyError:
+                        p = doc.add_paragraph()
+                    run = p.add_run("per il Collegio Sindacale:")
+                    run.font.name = 'Times New Roman'
+                    run.font.size = Pt(12)
+                    for sindaco in sindaci_presenti:
+                        carica = sindaco.get('carica', 'Sindaco Effettivo')
+                        nome_sindaco = sindaco.get('nome', '')
+                        if nome_sindaco:
+                            try:
+                                p = doc.add_paragraph(style='BodyText')
+                            except KeyError:
+                                p = doc.add_paragraph()
+                            run = p.add_run(f"il Dott. {nome_sindaco} - {carica}")
+                            run.font.name = 'Times New Roman'
+                            run.font.size = Pt(12)
+            else:
+                sindaci = data.get('sindaci', [])
+                if sindaci and sindaci[0].get('nome'):
+                    sindaco_unico_nome = sindaci[0].get('nome')
+                    try:
+                        p = doc.add_paragraph(style='BodyText')
+                    except KeyError:
+                        p = doc.add_paragraph()
+                    run = p.add_run(f"il Sindaco Unico nella persona del Sig. {sindaco_unico_nome}")
+                    run.font.name = 'Times New Roman'
+                    run.font.size = Pt(12)
+        
         # Aggiungi la sezione dei soci se presenti
         soci = data.get('soci', [])
         if soci:
@@ -788,9 +750,15 @@ Il Presidente                    Il Segretario
 
     def _add_soci_section(self, doc, data):
         """Aggiunge la sezione dettagliata dei soci"""
-        soci = data.get('soci', [])
+        soci_presenti = data.get('soci_presenti', [])
+        soci_assenti = data.get('soci_assenti', [])
+
+        # Fallback per mantenere compatibilità se le nuove chiavi non ci sono
+        if not soci_presenti and not soci_assenti and 'soci' in data:
+            soci_presenti = [s for s in data.get('soci', []) if s.get('presente', True)]
+            soci_assenti = [s for s in data.get('soci', []) if not s.get('presente', True)]
         
-        if not soci:
+        if not soci_presenti:
             return
         
         # Calcola totali
@@ -806,7 +774,7 @@ Il Presidente                    Il Segretario
         except ValueError:
             pass
         
-        for socio in soci:
+        for socio in soci_presenti:
             if isinstance(socio, dict):
                 # Calcola totale quote in euro
                 try:
@@ -849,7 +817,7 @@ Il Presidente                    Il Segretario
         run.font.size = Pt(12)
         
         # Lista dei soci
-        for socio in soci:
+        for socio in soci_presenti:
             if isinstance(socio, dict):
                 nome = socio.get('nome', '[Nome Socio]')
                 
@@ -903,69 +871,104 @@ Il Presidente                    Il Segretario
                 run = p.add_run(socio_text)
                 run.font.name = 'Times New Roman'
                 run.font.size = Pt(12)
+        
+        if soci_assenti:
+            p = doc.add_paragraph()
+            p.add_run("Risultano invece assenti i seguenti soci:")
+            for socio in soci_assenti:
+                if isinstance(socio, dict) and socio.get('nome'):
+                    p = doc.add_paragraph(f"- il Sig. {socio.get('nome')}", style='BodyText')
 
     def _add_nomination_discussion(self, doc, data):
-        """Aggiunge la discussione sulla nomina"""
-        admin_unico = data.get('amministratore_unico', {})
-        nome_admin = admin_unico.get('nome', '[NOME AMMINISTRATORE]')
+        """Aggiunge la discussione sulla nomina e la delibera."""
         
-        try:
-            p = doc.add_paragraph(style='BodyText')
-        except KeyError:
-            p = doc.add_paragraph()
+        # --- Introduzione alla discussione ---
+        p = doc.add_paragraph(style='BodyText')
+        p.add_run("*     *     *").alignment = WD_ALIGN_PARAGRAPH.CENTER
         
-        run = p.add_run(f"Il Presidente propone di nominare Amministratore Unico della società il sig. {nome_admin}.")
-        run.font.name = 'Times New Roman'
-        run.font.size = Pt(12)
+        motivo_nomina = data.get('motivo_nomina', 'dimissioni dell\'organo in carica')
         
-        # Deliberazione
-        durata_incarico = data.get('durata_incarico', 'A tempo indeterminato fino a revoca o dimissioni')
-        compenso_annuo = data.get('compenso_annuo', '0,00')
+        p = doc.add_paragraph(style='BodyText')
+        p.add_run(f"Il Presidente informa l'assemblea che si rende necessaria la nomina di un nuovo organo amministrativo per {motivo_nomina.lower()}.")
         
-        try:
-            p = doc.add_paragraph(style='BodyText')
-        except KeyError:
-            p = doc.add_paragraph()
+        p = doc.add_paragraph(style='BodyText')
+        p.add_run("Il Presidente ricorda all'assemblea quanto previsto dall'art. 2475 del Codice Civile e dall'atto costitutivo della società.")
         
-        run = p.add_run("L'assemblea delibera:")
+        # --- Proposta di nomina ---
+        socio_proponente = data.get('socio_proponente', 'Il Presidente')
+        amministratore_unico = data.get('amministratore_unico', {})
+        nome_admin = amministratore_unico.get('nome', '[Nome Amministratore]')
+        
+        p = doc.add_paragraph(style='BodyText')
+        if socio_proponente.lower() != 'il presidente':
+            run = p.add_run(f"Prende la parola il socio sig. {socio_proponente} che propone di nominare Amministratore Unico della società il sig. ")
+        else:
+            run = p.add_run("Il Presidente propone di nominare Amministratore Unico della società il sig. ")
+
+        run = p.add_run(nome_admin)
         run.bold = True
-        run.font.name = 'Times New Roman'
-        run.font.size = Pt(12)
+        p.add_run(", dando evidenza della comunicazione scritta con cui il candidato, prima di accettare l'eventuale nomina, ha dichiarato:")
         
-        try:
-            p = doc.add_paragraph(style='BodyText')
-        except KeyError:
-            p = doc.add_paragraph()
+        # Dichiarazioni di insussistenza
+        p = doc.add_paragraph("l'insussistenza a suo carico di cause di ineleggibilità...", style='BodyText')
+        p.paragraph_format.left_indent = Inches(0.5)
         
-        run = p.add_run(f"- di nominare Amministratore Unico il sig. {nome_admin}")
-        run.font.name = 'Times New Roman'
-        run.font.size = Pt(12)
-        
-        try:
-            p = doc.add_paragraph(style='BodyText')
-        except KeyError:
-            p = doc.add_paragraph()
-        
-        run = p.add_run(f"- durata incarico: {durata_incarico}")
-        run.font.name = 'Times New Roman'
-        run.font.size = Pt(12)
-        
+        p = doc.add_paragraph("l'insussistenza a suo carico di interdizioni dal ruolo...", style='BodyText')
+        p.paragraph_format.left_indent = Inches(0.5)
+
+        # --- Discussione compenso (se presente) ---
         if data.get('include_compensi', True):
-            try:
-                p = doc.add_paragraph(style='BodyText')
-            except KeyError:
-                p = doc.add_paragraph()
+            articolo_statuto_compensi = data.get('articolo_statuto_compensi', '20')
+            p = doc.add_paragraph(style='BodyText')
+            p.add_run(f"Il Presidente invita anche l'assemblea a deliberare il compenso da attribuire all'organo amministrativo che verrà nominato, ai sensi dell'art. {articolo_statuto_compensi} dello statuto sociale.")
+
+        # --- Votazione e delibera ---
+        p = doc.add_paragraph(style='BodyText')
+        p.add_run("Segue breve discussione tra i soci al termine della quale si passa alla votazione con voto palese in forza della quale il Presidente constata che, all'unanimità,")
+        
+        p = doc.add_paragraph(style='BodyText')
+        p.add_run("l'assemblea", style='BodyText')
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        p = doc.add_paragraph(style='BodyText')
+        run = p.add_run("d e l i b e r a:")
+        run.bold = True
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        
+        # --- Punto 1: Nomina Amministratore con dati completi ---
+        p = doc.add_paragraph(style='BodyText')
+        p.add_run("di nominare quale Amministratore Unico della società il Sig. ")
+        
+        cf_admin = amministratore_unico.get('codice_fiscale', '[CF]')
+        nato_a = amministratore_unico.get('luogo_nascita', '[Luogo di Nascita]')
+        data_nascita_raw = amministratore_unico.get('data_nascita')
+        nato_il = data_nascita_raw.strftime('%d/%m/%Y') if hasattr(data_nascita_raw, 'strftime') else '[Data di Nascita]'
+        domicilio = amministratore_unico.get('domicilio', '[Domicilio]')
+        
+        run = p.add_run(nome_admin)
+        run.bold = True
+        p.add_run(f", nato a {nato_a} il {nato_il}, codice fiscale {cf_admin} e residente in {domicilio}, il quale, presente all'assemblea, dichiara di accettare la carica e di non trovarsi in alcuna delle cause di ineleggibilità o di incompatibilità previste dalla legge e dallo statuto sociale.")
+
+        # --- Punto 2: Durata incarico ---
+        durata_incarico = data.get('durata_incarico', 'A tempo indeterminato')
+        p = doc.add_paragraph(style='BodyText')
+        p.add_run(f"che l'amministratore resti in carica {durata_incarico.lower()}")
+
+        # --- Punto 3: Compenso (se presente) ---
+        if data.get('include_compensi', True):
+            compenso_annuo = CommonDataHandler.format_currency(data.get('compenso_annuo', '0,00'))
+            rimborso_text = " oltre al rimborso delle spese sostenute in ragione del suo ufficio" if data.get('rimborso_spese', True) else ""
             
-            run = p.add_run(f"- compenso annuo: euro {compenso_annuo}")
-            run.font.name = 'Times New Roman'
-            run.font.size = Pt(12)
+            p = doc.add_paragraph(style='BodyText')
+            p.add_run(f"di attribuire all'amministratore unico testè nominato il compenso annuo ed omnicomprensivo pari a nominali euro {compenso_annuo} al lordo di ritenute fiscali e previdenziali{rimborso_text}. Il compenso verrà liquidato periodicamente, in ragione della permanenza in carica.")
+
+        # --- Accettazione finale ---
+        p = doc.add_paragraph(style='BodyText')
+        p.add_run(f"Il sig. {nome_admin}, presente in assemblea, accetta l'incarico e ringrazia l'assemblea per la fiducia accordata.")
 
     def _add_closing_section(self, doc, data):
         """Aggiunge la sezione di chiusura"""
-        try:
-            p = doc.add_paragraph(style='BodyText')
-        except KeyError:
-            p = doc.add_paragraph()
+        p = doc.add_paragraph()
         
         # Ora di chiusura (usa ora_assemblea se non specificata)
         ora_val = data.get('ora_chiusura', data.get('ora_assemblea', '[ORA]'))

@@ -16,6 +16,7 @@ from base_verbale_template import BaseVerbaleTemplate
 from docx import Document
 from datetime import date
 import streamlit as st
+from common_data_handler import CommonDataHandler
 
 class VerbaleStandardTemplate(BaseVerbaleTemplate):
     """Template semplificato per Verbale di Assemblea dei Soci - Approvazione Bilancio"""
@@ -61,7 +62,7 @@ class VerbaleStandardTemplate(BaseVerbaleTemplate):
             form_data["segretario"] = st.text_input("Segretario", extracted_data.get("segretario", ""))
         with col2:
             form_data["ruolo_presidente"] = st.selectbox("Ruolo presidente", 
-                                                        ["Amministratore Unico", "Presidente CDA", "Consigliere Delegato"])
+                                                        CommonDataHandler.get_standard_ruoli_presidente())
         
         # Soci (semplificato)
         st.subheader("👥 Soci Presenti")
@@ -94,7 +95,8 @@ class VerbaleStandardTemplate(BaseVerbaleTemplate):
         try:
             denominazione = data.get('denominazione', '[DENOMINAZIONE]')
             sede_legale = data.get('sede_legale', '[SEDE]')
-            capitale_sociale = data.get('capitale_sociale', '[CAPITALE]')
+            capitale_sociale_raw = data.get('capitale_versato') or data.get('capitale_deliberato') or data.get('capitale_sociale', '[CAPITALE]')
+            capitale_sociale = CommonDataHandler.format_currency(capitale_sociale_raw)
             codice_fiscale = data.get('codice_fiscale', '[CF]')
             
             data_assemblea = data.get('data_assemblea', date.today())

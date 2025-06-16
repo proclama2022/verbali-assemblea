@@ -35,46 +35,31 @@ class VerbaleRimborsiSpeseTemplate(BaseVerbaleTemplate):
         ]
     
     def get_form_fields(self, extracted_data: dict) -> dict:
-        """Genera i campi del form per Streamlit"""
-        form_data = {}
-        
-        # Dati azienda standardizzati
-        form_data.update(CommonDataHandler.extract_and_populate_company_data(extracted_data))
-        
-        # Dati assemblea standardizzati  
-        form_data.update(CommonDataHandler.extract_and_populate_assembly_data(extracted_data))
-        
+        """Genera i campi del form per Streamlit."""
+        # Chiama il metodo della classe base per ottenere i campi comuni
+        form_data = super().get_form_fields(extracted_data)
+
         # Configurazioni specifiche
         st.subheader("💰 Configurazioni Specifiche Rimborsi Spese")
         
         col1, col2 = st.columns(2)
         with col1:
             form_data["ruolo_presidente"] = st.selectbox("Ruolo del presidente", 
-                                                        ["Amministratore Unico", 
-                                                         "Presidente del Consiglio di Amministrazione",
-                                                         "Altro (come da statuto)"])
+                                                        CommonDataHandler.get_standard_ruoli_presidente(),
+                                                        key="ruolo_presidente_rimborsi")
             form_data["tipo_organo"] = st.selectbox("Tipo di organo amministrativo", 
                                                    ["Amministratore Unico", 
-                                                    "Consiglio di Amministrazione"])
-        with col2:
-            form_data["include_collegio_sindacale"] = st.checkbox("Include Collegio Sindacale", value=False)
-            form_data["include_revisore"] = st.checkbox("Include revisore contabile", value=False)
-        
-        # Partecipanti standardizzati
-        participants_data = CommonDataHandler.extract_and_populate_participants_data(
-            extracted_data, 
-            unique_key_suffix="rimborsi_spese"
-        )
-        form_data.update(participants_data)
+                                                    "Consiglio di Amministrazione"],
+                                                    key="tipo_organo_rimborsi")
         
         # Amministratori beneficiari
         st.subheader("👥 Amministratori Beneficiari dei Rimborsi")
         
-        if form_data["tipo_organo"] == "Amministratore Unico":
+        if form_data.get("tipo_organo") == "Amministratore Unico":
             num_amministratori = 1
             st.info("Amministratore Unico")
         else:
-            num_amministratori = st.number_input("Numero membri CdA", min_value=1, max_value=10, value=3)
+            num_amministratori = st.number_input("Numero membri CdA", min_value=1, max_value=10, value=3, key="num_cda_rimborsi")
         
         amministratori_beneficiari = []
         for i in range(num_amministratori):
@@ -86,10 +71,10 @@ class VerbaleRimborsiSpeseTemplate(BaseVerbaleTemplate):
             
             col1, col2 = st.columns(2)
             with col1:
-                nome = st.text_input(f"Nome e Cognome", key=f"amm_nome_{i}",
+                nome = st.text_input(f"Nome e Cognome", key=f"amm_nome_{i}_rimborsi",
                                    placeholder="es. Sig. Mario Rossi")
             with col2:
-                titolo = st.text_input(f"Titolo", key=f"amm_titolo_{i}",
+                titolo = st.text_input(f"Titolo", key=f"amm_titolo_{i}_rimborsi",
                                      placeholder="es. Sig., Dott., Ing.",
                                      value="Sig.")
             
@@ -107,20 +92,22 @@ class VerbaleRimborsiSpeseTemplate(BaseVerbaleTemplate):
         
         col1, col2 = st.columns(2)
         with col1:
-            form_data["include_veicoli_personali"] = st.checkbox("Autorizza uso veicoli personali", value=True)
-            form_data["include_tariffe_aci"] = st.checkbox("Usa tariffe ACI", value=True)
+            form_data["include_veicoli_personali"] = st.checkbox("Autorizza uso veicoli personali", value=True, key="veicoli_personali_rimborsi")
+            form_data["include_tariffe_aci"] = st.checkbox("Usa tariffe ACI", value=True, key="tariffe_aci_rimborsi")
         with col2:
-            form_data["include_statuto_riferimento"] = st.checkbox("Riferimento articolo statuto", value=True)
-            if form_data["include_statuto_riferimento"]:
+            form_data["include_statuto_riferimento"] = st.checkbox("Riferimento articolo statuto", value=True, key="statuto_riferimento_rimborsi")
+            if form_data.get("include_statuto_riferimento"):
                 form_data["articolo_statuto"] = st.text_input("Articolo statuto", 
-                                                             placeholder="es. art. 15")
+                                                             placeholder="es. art. 15",
+                                                             key="articolo_statuto_rimborsi")
         
         # Tipi di rimborso
         st.subheader("💵 Tipi di Rimborso")
         
         form_data["tipo_rimborso_trasferte"] = st.selectbox(
             "Tipo rimborso trasferte",
-            ["Analitico (a piè di lista)", "Forfettario", "Misto"]
+            ["Analitico (a piè di lista)", "Forfettario", "Misto"],
+            key="tipo_rimborso_rimborsi"
         )
         
         # Importi forfettari (valori standard 2024)
@@ -129,57 +116,42 @@ class VerbaleRimborsiSpeseTemplate(BaseVerbaleTemplate):
         col1, col2 = st.columns(2)
         with col1:
             st.write("**Italia**")
-            form_data["forfait_completo_italia"] = st.number_input("Forfait completo Italia", value=46.48, step=0.01)
-            form_data["forfait_parziale_italia"] = st.number_input("Forfait parziale Italia", value=30.99, step=0.01)
-            form_data["forfait_minimo_italia"] = st.number_input("Forfait minimo Italia", value=15.49, step=0.01)
+            form_data["forfait_completo_italia"] = st.number_input("Forfait completo Italia", value=46.48, step=0.01, key="forfait_italia_1")
+            form_data["forfait_parziale_italia"] = st.number_input("Forfait parziale Italia", value=30.99, step=0.01, key="forfait_italia_2")
+            form_data["forfait_minimo_italia"] = st.number_input("Forfait minimo Italia", value=15.49, step=0.01, key="forfait_italia_3")
         
         with col2:
             st.write("**Estero**")
-            form_data["forfait_completo_estero"] = st.number_input("Forfait completo Estero", value=77.47, step=0.01)
-            form_data["forfait_parziale_estero"] = st.number_input("Forfait parziale Estero", value=51.65, step=0.01)
-            form_data["forfait_minimo_estero"] = st.number_input("Forfait minimo Estero", value=25.82, step=0.01)
+            form_data["forfait_completo_estero"] = st.number_input("Forfait completo Estero", value=77.47, step=0.01, key="forfait_estero_1")
+            form_data["forfait_parziale_estero"] = st.number_input("Forfait parziale Estero", value=51.65, step=0.01, key="forfait_estero_2")
+            form_data["forfait_minimo_estero"] = st.number_input("Forfait minimo Estero", value=25.82, step=0.01, key="forfait_estero_3")
         
         # Esclusioni e limitazioni
         st.subheader("⚠️ Esclusioni e Limitazioni")
         
-        form_data["escludi_domicilio_sede"] = st.checkbox("Escludi trasferimenti domicilio-sede", value=True)
-        form_data["limite_deducibilita_fiscale"] = st.checkbox("Limite deducibilità fiscale", value=True)
+        form_data["escludi_domicilio_sede"] = st.checkbox("Escludi trasferimenti domicilio-sede", value=True, key="escludi_domicilio_rimborsi")
+        form_data["limite_deducibilita_fiscale"] = st.checkbox("Limite deducibilità fiscale", value=True, key="limite_deducibilita_rimborsi")
         
         # Documentazione richiesta
         st.subheader("📄 Documentazione Richiesta")
-        form_data["richiedi_documentazione"] = st.checkbox("Richiedi documentazione per rimborsi", value=True)
+        form_data["richiedi_documentazione"] = st.checkbox("Richiedi documentazione per rimborsi", value=True, key="richiedi_doc_rimborsi")
         
-        # Votazione
-        st.subheader("🗳️ Configurazioni Votazione")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            form_data["votazione_unanime"] = st.checkbox("Votazione unanime", value=True)
-            if not form_data["votazione_unanime"]:
-                form_data["voti_contrari"] = st.text_input("Voti contrari", 
-                                                          placeholder="es. Sig. Rossi, Sig. Verdi")
-                form_data["astensioni"] = st.text_input("Astensioni", 
-                                                       placeholder="es. Sig. Neri")
-        
-        with col2:
-            form_data["include_traduzione"] = st.checkbox("Include sezione traduzione", value=False)
-            form_data["include_presenti_qualita"] = st.checkbox("Include sezione 'presenti in qualità di'", value=False)
-        
-        # Traduzione se necessaria
-        if form_data["include_traduzione"]:
-            st.subheader("🌐 Traduzione")
-            col1, col2 = st.columns(2)
-            with col1:
-                form_data["persona_traduzione"] = st.text_input("Persona che necessita traduzione")
-            with col2:
-                form_data["lingua_traduzione"] = st.selectbox("Lingua", 
-                                                             ["Inglese", "Francese", "Tedesco", "Spagnolo"])
+        # Votazione (i campi sono gestiti dalla base)
+        if form_data.get("esito_votazione") != "approvato all'unanimità":
+            st.subheader("🗳️ Dettagli Votazione")
+            form_data["voti_contrari"] = st.text_input("Voti contrari", 
+                                                      placeholder="es. Sig. Rossi, Sig. Verdi",
+                                                      key="voti_contrari_rimborsi")
+            form_data["astensioni"] = st.text_input("Astensioni", 
+                                                   placeholder="es. Sig. Neri",
+                                                   key="astensioni_rimborsi")
         
         # Note aggiuntive
         st.subheader("📝 Note Aggiuntive")
         form_data["note_aggiuntive"] = st.text_area("Note aggiuntive", 
                                                   placeholder="Eventuali note specifiche sui rimborsi...",
-                                                  height=80)
+                                                  height=80,
+                                                  key="note_aggiuntive_rimborsi")
         
         return form_data
     
@@ -206,14 +178,20 @@ class VerbaleRimborsiSpeseTemplate(BaseVerbaleTemplate):
     def _generate_preview_text(self, data: dict) -> str:
         """Genera il testo di anteprima"""
         try:
-            # Header
+            # Header uniformato
             amministratori = data.get('amministratori_beneficiari', [])
             nomi_amm = ', '.join([a.get('nome', '') for a in amministratori if a.get('nome')])
             
-            header = f"""{data.get('denominazione', '[Denominazione]')}
-Sede in {data.get('sede_legale', '[Sede]')}
-Capitale sociale Euro {data.get('capitale_sociale', '[Capitale]')} i.v.
-Codice fiscale: {data.get('codice_fiscale', '[CF]')}
+            denominazione = data.get('denominazione', '[Denominazione]')
+            sede_legale = data.get('sede_legale', '[Sede]')
+            capitale_sociale_raw = data.get('capitale_versato') or data.get('capitale_deliberato') or data.get('capitale_sociale', '[Capitale]')
+            capitale_sociale = CommonDataHandler.format_currency(capitale_sociale_raw)
+            codice_fiscale = data.get('codice_fiscale', '[CF]')
+            
+            header = f"""{denominazione}
+Sede in {sede_legale}
+Capitale sociale Euro {capitale_sociale} i.v.
+Codice fiscale: {codice_fiscale}
 
 Verbale di assemblea dei soci
 del {data.get('data_assemblea', '[Data]').strftime('%d/%m/%Y') if hasattr(data.get('data_assemblea'), 'strftime') else '[Data]'}
@@ -415,8 +393,8 @@ Gli Amministratori sono autorizzati all'utilizzo dei propri veicoli ai fini azie
                     pass  # Ignora valori non numerici
 
         # Formattazione per l'italiano
-        totale_quote_euro_formatted = f"{totale_quote_euro:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-        totale_quote_perc_formatted = f"{totale_quote_perc:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+        totale_quote_euro_formatted = CommonDataHandler.format_currency(totale_quote_euro)
+        totale_quote_perc_formatted = CommonDataHandler.format_percentage(totale_quote_perc)
 
         p = doc.add_paragraph(f"nonché i seguenti soci o loro rappresentanti, [eventualmente così come iscritti a libro soci e] recanti complessivamente una quota pari a nominali euro {totale_quote_euro_formatted} pari al {totale_quote_perc_formatted}% del Capitale Sociale:")
         

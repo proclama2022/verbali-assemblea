@@ -4,6 +4,7 @@ Template per verbale di assemblea - Nomina Consiglio di Amministrazione
 
 import sys
 import os
+import pandas as pd
 
 # Aggiungi il path della cartella src (relativo alla root del progetto)
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -33,148 +34,50 @@ class VerbaleConsiglioAmministrazioneTemplate(BaseVerbaleTemplate):
                 'data_assemblea', 'ora_inizio', 'presidente', 'segretario', 'consiglieri', 'soci']
     
     def get_form_fields(self, extracted_data: dict) -> dict:
-        """Definisce i campi del form per questo template"""
-        
-        # Informazioni base azienda
-        st.subheader("📋 Informazioni Azienda")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            denominazione = st.text_input("Denominazione Società", 
-                                        value=extracted_data.get('denominazione', ''))
-            sede_legale = st.text_input("Sede Legale", 
-                                      value=extracted_data.get('sede_legale', ''))
-        
-        with col2:
-            capitale_sociale = st.text_input("Capitale Sociale", 
-                                           value=extracted_data.get('capitale_sociale', ''))
-            codice_fiscale = st.text_input("Codice Fiscale", 
-                                         value=extracted_data.get('codice_fiscale', ''))
-        
-        # Informazioni assemblea
-        st.subheader("📅 Informazioni Assemblea")
+        """Genera i campi del form per Streamlit."""
+        # Chiama il metodo della classe base per ottenere i campi comuni
+        form_data = super().get_form_fields(extracted_data)
+
+        st.subheader("🏛️ Configurazioni Consiglio di Amministrazione")
+
+        # Sezioni opzionali del verbale
         col1, col2, col3 = st.columns(3)
-        
         with col1:
-            data_assemblea = st.date_input("Data Assemblea", 
-                                         value=extracted_data.get('data_assemblea', date.today()))
-        
+            form_data['nomina_presidente'] = st.checkbox("Nomina Presidente", value=True, key="nomina_presidente_cda")
         with col2:
-            ora_inizio = st.time_input("Ora Inizio", 
-                                     value=extracted_data.get('ora_inizio'))
-        
+            form_data['attribuzione_poteri'] = st.checkbox("Attribuzione Poteri", value=True, key="attribuzione_poteri_cda")
         with col3:
-            ora_chiusura = st.time_input("Ora Chiusura", 
-                                       value=extracted_data.get('ora_chiusura'))
-        
-        # Partecipanti
-        st.subheader("👥 Partecipanti")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            presidente = st.text_input("Presidente Assemblea", 
-                                     value=extracted_data.get('presidente', ''))
-        
-        with col2:
-            segretario = st.text_input("Segretario", 
-                                     value=extracted_data.get('segretario', ''))
-        
-        # Motivo nomina
-        st.subheader("📝 Dettagli Nomina")
-        motivo_nomina = st.text_area("Motivo della nomina", 
-                                   value=extracted_data.get('motivo_nomina', 'Dimissioni dell\'organo in carica'),
-                                   height=80)
-        
-        # Numero consiglieri
-        num_consiglieri = st.number_input("Numero Consiglieri", min_value=1, max_value=10, value=3)
-        
-        # Consiglieri
-        st.subheader("👨‍💼 Consiglieri da Nominare")
-        consiglieri = []
-        
-        for i in range(num_consiglieri):
-            st.write(f"**Consigliere {i+1}**")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                nome = st.text_input(f"Nome Completo {i+1}", key=f"cons_nome_{i}")
-                data_nascita = st.date_input(f"Data Nascita {i+1}", key=f"cons_data_{i}")
-            
-            with col2:
-                luogo_nascita = st.text_input(f"Luogo Nascita {i+1}", key=f"cons_luogo_{i}")
-                codice_fiscale_cons = st.text_input(f"Codice Fiscale {i+1}", key=f"cons_cf_{i}")
-            
-            with col3:
-                residenza = st.text_input(f"Residenza {i+1}", key=f"cons_res_{i}")
-                qualifica = st.selectbox(f"Qualifica {i+1}", 
-                                       ["Socio", "Amministratore uscente", "Invitato", "Altro"],
-                                       key=f"cons_qual_{i}")
-            
-            consiglieri.append({
-                'nome': nome,
-                'data_nascita': data_nascita,
-                'luogo_nascita': luogo_nascita,
-                'codice_fiscale': codice_fiscale_cons,
-                'residenza': residenza,
-                'qualifica': qualifica
-            })
-        
-        # Presidente CdA
-        st.subheader("🎯 Presidente del Consiglio")
-        presidente_cda_option = st.radio("Nomina Presidente CdA",
-                                       ["Nomina diretta in assemblea", "Rimanda al Consiglio"])
-        
-        presidente_cda = ""
-        if presidente_cda_option == "Nomina diretta in assemblea":
-            presidente_cda = st.selectbox("Seleziona Presidente CdA", 
-                                        [c['nome'] for c in consiglieri if c['nome']])
-        
-        # Compensi
-        st.subheader("💰 Compensi")
-        include_compensi = st.checkbox("Includi delibera sui compensi", value=True)
-        
-        compenso_annuo = "0,00"
-        rimborso_spese = True
-        
-        if include_compensi:
-            compenso_annuo = st.text_input("Compenso Annuo Totale (€)", value="0,00")
-            rimborso_spese = st.checkbox("Rimborso spese", value=True)
-        
-        # Durata incarico
-        durata_incarico = st.text_input("Durata Incarico", 
-                                      value="A tempo indeterminato fino a revoca o dimissioni")
-        
-        # ================= Soci e partecipazioni tramite CommonDataHandler =================
-        participants_data = CommonDataHandler.extract_and_populate_participants_data(
-            extracted_data,
-            unique_key_suffix="cda"
-        )
+            form_data['determinazione_compensi'] = st.checkbox("Determinazione Compensi", value=True, key="determinazione_compensi_cda")
 
-        # Unisci participants_data agli altri campi
-        all_data = {
-            'denominazione': denominazione,
-            'sede_legale': sede_legale,
-            'capitale_sociale': capitale_sociale,
-            'codice_fiscale': codice_fiscale,
-            'data_assemblea': data_assemblea,
-            'ora_inizio': ora_inizio,
-            'ora_chiusura': ora_chiusura,
-            'presidente': presidente,
-            'segretario': segretario,
-            'motivo_nomina': motivo_nomina,
-            'consiglieri': consiglieri,
-            'presidente_cda': presidente_cda,
-            'presidente_cda_option': presidente_cda_option,
-            'include_compensi': include_compensi,
-            'compenso_annuo': compenso_annuo,
-            'rimborso_spese': rimborso_spese,
-            'durata_incarico': durata_incarico
-        }
+        # Dettagli condizionali
+        if form_data.get('nomina_presidente'):
+            st.subheader("Nomina del Presidente del CdA")
+            # Assumendo che gli amministratori siano già in form_data dalla classe base
+            admin_names = [a.get('nome', '') for a in form_data.get('amministratori', []) if a.get('nome')]
+            form_data['presidente_eletto'] = st.selectbox(
+                "Seleziona il Presidente da eleggere",
+                admin_names,
+                key="presidente_eletto_cda"
+            )
 
-        # Aggiungi soci e amministratori dal CommonDataHandler
-        all_data.update(participants_data)
+        if form_data.get('attribuzione_poteri'):
+            st.subheader("Attribuzione dei Poteri")
+            form_data['poteri_presidente'] = st.text_area(
+                "Poteri attribuiti al Presidente",
+                "Al Presidente del Consiglio di Amministrazione sono attribuiti i poteri di...",
+                height=150,
+                key="poteri_presidente_cda"
+            )
 
-        return all_data
+        if form_data.get('determinazione_compensi'):
+            st.subheader("Determinazione dei Compensi")
+            form_data['compenso_cda'] = st.text_input(
+                "Compenso annuo lordo per il CdA (€)",
+                "0,00",
+                key="compenso_cda"
+            )
+        
+        return form_data
     
     def show_preview(self, form_data: dict):
         """Mostra l'anteprima del verbale"""
@@ -209,20 +112,34 @@ Ordine del giorno
                 header += "\n• attribuzione di compensi al Consiglio di Amministrazione della società"
             
             # --- Costruzione elenco soci prima della sezione presidente ---
-            soci_list = data.get('soci', []) or []
+            soci_presenti = data.get('soci_presenti', [])
+            soci_assenti = data.get('soci_assenti', [])
+
+            # Fallback
+            if not soci_presenti and not soci_assenti and 'soci' in data:
+                soci_presenti = [s for s in data.get('soci', []) if s.get('presente', True)]
+                soci_assenti = [s for s in data.get('soci', []) if not s.get('presente', True)]
+
             soci_listing_lines = []
-            for socio in soci_list:
-                if isinstance(socio, dict) and socio.get('nome'):
-                    quota_euro = socio.get('quota_euro', '')
-                    quota_perc = socio.get('quota_percentuale', '')
-                    quota_text = ""
-                    if quota_euro:
-                        quota_text += f" euro {quota_euro}"
-                    if quota_perc:
-                        quota_text += f" pari al {quota_perc}%"
-                    soci_listing_lines.append(f"- {socio.get('nome')} ({socio.get('tipo_soggetto', 'PF')}){quota_text}")
+            if soci_presenti:
+                for socio in soci_presenti:
+                    if isinstance(socio, dict) and socio.get('nome'):
+                        quota_euro = socio.get('quota_euro', '')
+                        quota_perc = socio.get('quota_percentuale', '')
+                        quota_text = ""
+                        if quota_euro:
+                            quota_text += f" euro {quota_euro}"
+                        if quota_perc:
+                            quota_text += f" pari al {quota_perc}%"
+                        soci_listing_lines.append(f"- {socio.get('nome')} ({socio.get('tipo_soggetto', 'PF')}){quota_text}")
 
             soci_listing = "\n".join(soci_listing_lines) if soci_listing_lines else "- Nessun socio presente"
+            
+            if soci_assenti:
+                soci_listing += "\n\nSoci assenti:"
+                for socio in soci_assenti:
+                    if isinstance(socio, dict) and socio.get('nome'):
+                        soci_listing += f"\n- {socio.get('nome')}"
             
             # ---- Calcolo totali quota euro e percentuale ----
             total_quota_euro_val = 0.0
@@ -235,7 +152,7 @@ Ordine del giorno
             except ValueError:
                 capitale_sociale_float = 0.0
 
-            for socio in soci_list:
+            for socio in soci_presenti:
                 if isinstance(socio, dict):
                     # totale euro
                     quota_euro_raw = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
@@ -273,7 +190,29 @@ Assume la presidenza ai sensi dell'art. […] dello statuto sociale il Sig. {dat
 1 - che (come indicato anche nell'avviso di convocazione ed in conformità alle previsioni dell'art. […] dello statuto sociale) l'intervento all'assemblea può avvenire anche in audioconferenza
 
 2 - che sono presenti/partecipano all'assemblea:
-l'Amministratore Unico nella persona del suddetto Presidente Sig. {data.get('presidente', '[PRESIDENTE]')}
+l'Amministratore Unico nella persona del suddetto Presidente Sig. {data.get('presidente', '[PRESIDENTE]')}"""
+            
+            # Collegio sindacale se presente
+            if data.get('include_collegio_sindacale', False):
+                tipo_organo_controllo = data.get('tipo_organo_controllo', 'Collegio Sindacale')
+                
+                if tipo_organo_controllo == 'Collegio Sindacale':
+                    sindaci_list = data.get('sindaci', [])
+                    sindaci_presenti = [s for s in sindaci_list if s.get('presente')]
+                    if sindaci_presenti:
+                        presidente_section += "\n\nper il Collegio Sindacale:"
+                        for sindaco in sindaci_presenti:
+                            carica = sindaco.get('carica', 'Sindaco Effettivo')
+                            nome_sindaco = sindaco.get('nome', '')
+                            if nome_sindaco:
+                                presidente_section += f"\nil Dott. {nome_sindaco} - {carica}"
+                else: # Sindaco Unico
+                    sindaci_list = data.get('sindaci', [])
+                    if sindaci_list and sindaci_list[0].get('nome'):
+                        sindaco_unico_nome = sindaci_list[0].get('nome')
+                        presidente_section += f"\n\nil Sindaco Unico nella persona del Sig. {sindaco_unico_nome}"
+
+            presidente_section += f"""
 
 nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {total_quota_euro} pari al {total_quota_perc} del Capitale Sociale:
 {soci_listing}
@@ -496,8 +435,15 @@ Il Presidente                    Il Segretario
 
     def _add_soci_section(self, doc, data):
         """Lista soci con quote e totali"""
-        soci = data.get('soci', [])
-        if not soci:
+        soci_presenti = data.get('soci_presenti', [])
+        soci_assenti = data.get('soci_assenti', [])
+
+        # Fallback
+        if not soci_presenti and not soci_assenti and 'soci' in data:
+            soci_presenti = [s for s in data.get('soci', []) if s.get('presente', True)]
+            soci_assenti = [s for s in data.get('soci', []) if not s.get('presente', True)]
+
+        if not soci_presenti:
             return
 
         # Calcola totali
@@ -509,7 +455,7 @@ Il Presidente                    Il Segretario
         except ValueError:
             capitale_float = 0.0
 
-        for socio in soci:
+        for socio in soci_presenti:
             if isinstance(socio, dict):
                 # euro
                 euro_raw = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
@@ -547,7 +493,7 @@ Il Presidente                    Il Segretario
         run.font.size = Pt(12)
 
         # Lista soci
-        for socio in soci:
+        for socio in soci_presenti:
             if isinstance(socio, dict) and socio.get('nome'):
                 quota_euro = CommonDataHandler.format_currency(socio.get('quota_euro', '0'))
                 quota_perc = socio.get('quota_percentuale', '')
@@ -593,6 +539,13 @@ Il Presidente                    Il Segretario
                 run = p.add_run(descr_line)
                 run.font.name = 'Times New Roman'
                 run.font.size = Pt(12)
+        
+        if soci_assenti:
+            doc.add_paragraph()
+            p = doc.add_paragraph("Risultano invece assenti i seguenti soci:", style='BodyText')
+            for socio in soci_assenti:
+                 if isinstance(socio, dict) and socio.get('nome'):
+                    p = doc.add_paragraph(f"- {socio.get('nome')}", style='BodyText')
 
     def _add_nomination_discussion(self, doc, data):
         """Discussione sulla nomina del CdA e deliberazione"""
