@@ -643,6 +643,8 @@ Il Presidente                    Il Segretario
             soci_assenti = [s for s in data.get('soci', []) if not s.get('presente', True)]
 
         if soci_presenti:
+            # Inizializza la variabile soci_section per accumulare il testo dei soci
+            soci_section = ""
             total_quota_euro = 0.0
             total_quota_percentuale = 0.0
 
@@ -697,6 +699,11 @@ Il Presidente                    Il Segretario
             for socio in soci_assenti:
                 nome = socio.get('nome', '[Nome Socio]')
                 soci_section += f"\n- Sig. {nome}"
+        
+        # Aggiungi il contenuto della sezione soci al documento se è stata costruita
+        if 'soci_section' in locals() and soci_section:
+            p = doc.add_paragraph(soci_section.strip())
+            p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         
         # Verifica legittimazione
         p = doc.add_paragraph("2 - che gli intervenuti sono legittimati alla presente assemblea;")

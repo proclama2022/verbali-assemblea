@@ -364,7 +364,17 @@ class BaseVerbaleTemplate(DocumentTemplate):
         e nomi centrati in fondo al documento.
         """
         table = doc.add_table(rows=2, cols=2)
-        table.style = "Table Grid"
+        
+        # Applica lo stile di tabella in modo sicuro
+        try:
+            table.style = "Table Grid"
+        except KeyError:
+            # Se "Table Grid" non esiste, prova con altri stili comuni
+            table_styles = [s.name for s in doc.styles if s.type == WD_STYLE_TYPE.TABLE]
+            if table_styles:
+                # Usa il primo stile di tabella disponibile
+                table.style = table_styles[0]
+            # Se non ci sono stili di tabella, lascia lo stile predefinito
 
         # Prima riga: linee firma
         for cell in table.rows[0].cells:

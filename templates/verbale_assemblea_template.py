@@ -516,11 +516,14 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
                     doc = Document(template_path)
                 else:
                     doc = Document()
-                    # Configurazione stili del documento solo se non usiamo template
-                    self._setup_document_styles(doc)
+                # Configurazione stili del documento
+# DEBUG: elenco stili paragrafi disponibili
+                print("Stili paragrafi disponibili:", [s.name for s in doc.styles])
+                self._setup_document_styles(doc)
             except Exception as e:
                 # Fallback a documento vuoto se il template non può essere caricato
                 doc = Document()
+                # Configurazione stili del documento
                 self._setup_document_styles(doc)
             
             # Intestazione società
@@ -562,6 +565,7 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
                 for paragraph in doc.paragraphs[:]:
                     p = paragraph._element
                     p.getparent().remove(p)
+                self._setup_document_styles(doc)
             else:
                 doc = Document()
                 # Configurazione stili di base solo se non usiamo template
@@ -692,9 +696,9 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
             # 9. Testo normale
             else:
                 sections.append({
-                    'type': 'body_text', 
-                    'content': line_stripped, 
-                    'style': 'BodyText',
+                    'type': 'body_text',
+                    'content': line_stripped,
+                    'style': 'Normal',  # Usa 'Normal' che esiste sempre invece di 'BodyText'
                     'original_line': line
                 })
         
@@ -704,6 +708,9 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
         """
         Aggiunge una sezione al documento con la formattazione appropriata
         """
+        # Definisci la variabile styles per accedere agli stili del documento
+        styles = doc.styles
+        
         if section['type'] == 'empty':
             doc.add_paragraph()
             return
@@ -765,8 +772,8 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
                 p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
                 
         except Exception as e:
-            # Fallback a testo normale se c'è un errore
-            p = doc.add_paragraph(content, style='BodyText')
+            # Fallback a testo normale se c'è un errore - usa 'Normal' che esiste sempre
+            p = doc.add_paragraph(content, style='Normal')
             p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
         # Stile 'Normal' (base per il documento)
         try:
@@ -880,43 +887,27 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
 
     
     def _add_company_header(self, doc, data):
-        """Aggiunge l'intestazione della società utilizzando stili definiti."""
-        # Nome società - stile principale
-        company_name = doc.add_paragraph(data.get('denominazione', 'N/A').upper(), style='CompanyHeader')
+        """Aggiunge l'intestazione della società con formattazione professionale e robusta."""
+        font_name = 'Times New Roman'
         
-        # Sede legale - stile secondario
-        sede_text = f"Sede in {data.get('sede_legale', 'N/A')}"
-        p_sede = doc.add_paragraph(sede_text, style='CompanyHeader')
-        p_sede.runs[0].font.size = Pt(10)
-        p_sede.runs[0].font.bold = False
-        p_sede.paragraph_format.space_before = Pt(0)
-        p_sede.paragraph_format.space_after = Pt(0)
-
-        # Capitale sociale
-        capitale_deliberato = str(data.get('capitale_deliberato', 'N/A')).strip()
-        capitale_versato = str(data.get('capitale_versato', 'N/A')).strip()
-        capitale_sottoscritto = str(data.get('capitale_sottoscritto', 'N/A')).strip()
+        # Nome azienda (maiuscolo, centrato, grassetto)
+        company_name = doc.add_paragraph(data.get('denominazione', 'N/A').upper(), style='TitoloSocieta')
+        company_name.alignment = WD_ALIGN_PARAGRAPH.CENTER
         
-        if capitale_versato == capitale_deliberato and capitale_deliberato != 'N/A':
-            capitale_text = f"Capitale sociale Euro {capitale_deliberato} i.v."
-        elif capitale_deliberato != 'N/A':
-            capitale_text = f"Capitale sociale Euro {capitale_deliberato} i.v."
-        else:
-            capitale_text = "Capitale sociale: N/A"
+        # Dettagli (sede, capitale, CF) - centrati
+        details = [
+            f"Sede in {data.get('sede_legale', 'N/A')}",
+            f"Capitale sociale: {data.get('capitale_sociale', 'N/A')}",
+            f"Codice fiscale: {data.get('codice_fiscale', 'N/A')}"
+        ]
         
-        p_capitale = doc.add_paragraph(capitale_text, style='CompanyHeader')
-        p_capitale.runs[0].font.size = Pt(10)
-        p_capitale.runs[0].font.bold = False
-        p_capitale.paragraph_format.space_before = Pt(0)
-        p_capitale.paragraph_format.space_after = Pt(0)
-
-        # Codice fiscale
-        cf_piva_text = f"Codice fiscale: {data.get('codice_fiscale', 'N/A')}"
-        p_cf = doc.add_paragraph(cf_piva_text, style='CompanyHeader')
-        p_cf.runs[0].font.size = Pt(10)
-        p_cf.runs[0].font.bold = False
-        p_cf.paragraph_format.space_before = Pt(0)
-        p_cf.paragraph_format.space_after = Pt(12)
+        for detail in details:
+            p = doc.add_paragraph(detail, style='BodyText')
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.runs[0].font.name = font_name
+            p.runs[0].font.size = Pt(10)
+            p.paragraph_format.space_before = Pt(0)
+            p.paragraph_format.space_after = Pt(0)
         
         # Riga separatrice
         hr_paragraph = doc.add_paragraph()
