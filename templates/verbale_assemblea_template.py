@@ -137,154 +137,37 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
         
         with col2:
             if show_preview:
-                st.info("💡 L'anteprima si aggiorna automaticamente con i dati inseriti sopra")
+                st.info("💡 L'anteprima si aggiorna automaticamente con i dati inseriti.")
         
         if show_preview:
             try:
-                # Debug avanzato: mostra alcuni dati per verificare
-                st.markdown("**🔍 Debug - Informazioni sui dati**")
-                st.write(f"**Tipo dati ricevuti:** {type(form_data)}")
-                st.write(f"**Numero di campi:** {len(form_data) if form_data else 0}")
-                st.write("**Campi principali:**")
-                st.write(f"- Denominazione: {form_data.get('denominazione', 'NON IMPOSTATA')}")
-                st.write(f"- Presidente: {form_data.get('presidente', 'NON IMPOSTATO')}")
-                st.write(f"- Data assemblea: {form_data.get('data_assemblea', 'NON IMPOSTATA')}")
-                st.write(f"- Soci: {len(form_data.get('soci', []))} presenti")
+                # Debug: Mostra i dati passati al template
+                with st.expander("Debug: Dati inviati per l'anteprima"):
+                    st.json(form_data)
+
+                # Genera l'anteprima
+                preview_text = self._generate_preview_text(form_data)
                 
-                # Debug specifico per i soci
-                soci_debug = form_data.get('soci', [])
-                if soci_debug:
-                    st.write("**Debug Soci Dettagliato:**")
-                    for i, socio in enumerate(soci_debug):
-                        st.write(f"  Socio {i+1}: {socio}")
-                        # Debug specifico per i nuovi campi
-                        tipo_soggetto = socio.get('tipo_soggetto', 'NON TROVATO')
-                        rappresentante = socio.get('rappresentante_legale', 'NON TROVATO')
-                        st.write(f"    - Tipo Soggetto: {tipo_soggetto}")
-                        st.write(f"    - Rappresentante Legale: {rappresentante}")
-                        
-                        # ⚠️ DEBUG SPECIFICO PER IL PROBLEMA
-                        if tipo_soggetto == 'Società':
-                            if rappresentante and rappresentante != 'NON TROVATO' and rappresentante.strip():
-                                st.success(f"✅ Società '{socio.get('nome', '')}' ha rappresentante legale: '{rappresentante}'")
-                            else:
-                                st.error(f"❌ Società '{socio.get('nome', '')}' NON ha rappresentante legale specificato!")
-                                st.write(f"   Valore grezzo: '{repr(rappresentante)}'")
-                        elif tipo_soggetto == 'Persona Fisica':
-                            st.info(f"ℹ️ '{socio.get('nome', '')}' è una Persona Fisica (rappresentante legale non necessario)")
-                else:
-                    st.write("❌ Nessun dato sui soci trovato")
+                # Mostra statistiche e testo dell'anteprima
+                if preview_text:
+                    word_count = len(preview_text.split())
+                    char_count = len(preview_text)
+                    st.caption(f"📊 Statistiche anteprima: {word_count} parole, {char_count} caratteri.")
                     
-                    # Mostra tutti i campi disponibili
-                    st.write("**Tutti i campi disponibili:**")
-                    if form_data:
-                        for key, value in form_data.items():
-                            if isinstance(value, list):
-                                st.write(f"- {key}: lista con {len(value)} elementi")
-                            else:
-                                preview_value = str(value)[:50] + "..." if len(str(value)) > 50 else str(value)
-                                st.write(f"- {key}: {preview_value}")
-                    else:
-                        st.error("❌ form_data è vuoto o None!")
-                
-                    # Debug UI per i soci nell'anteprima
-                    if st.checkbox("🔍 Debug Soci nell'Anteprima", key="debug_soci_anteprima"):
-                        soci_debug = form_data.get('soci', [])
-                        st.write("**Dati soci che arrivano all'anteprima:**")
-                        for i, socio in enumerate(soci_debug):
-                            tipo_soggetto = socio.get('tipo_soggetto', 'NON TROVATO')
-                            rappresentante = socio.get('rappresentante_legale', 'NON TROVATO')
-                            tipo_part = socio.get('tipo_partecipazione', 'NON TROVATO')
-                            delegato = socio.get('delegato', 'NON TROVATO')
-                            
-                            st.write(f"**Socio {i+1}: {socio.get('nome', 'NOME MANCANTE')}**")
-                            st.write(f"  - Tipo Partecipazione: '{tipo_part}'")
-                            st.write(f"  - Tipo Soggetto: '{tipo_soggetto}'")
-                            st.write(f"  - Delegato: '{delegato}'")
-                            st.write(f"  - Rappresentante Legale: '{rappresentante}'")
-                            
-                            # Test delle condizioni
-                            if tipo_part == 'Delegato' and delegato:
-                                st.success(f"✅ MATCH: È un delegato")
-                                if tipo_soggetto == 'Società':
-                                    st.success(f"✅ MATCH: È una società")
-                                    if rappresentante:
-                                        st.success(f"✅ MATCH: Ha rappresentante legale")
-                                    else:
-                                        st.error(f"❌ NO MATCH: Rappresentante legale vuoto")
-                                else:
-                                    st.info(f"ℹ️ INFO: Non è una società")
-                            else:
-                                st.info(f"ℹ️ INFO: Non è un delegato")
-                                if tipo_soggetto == 'Società':
-                                    st.success(f"✅ MATCH: È una società diretta")
-                                    if rappresentante:
-                                        st.success(f"✅ MATCH: Ha rappresentante legale")
-                                    else:
-                                        st.error(f"❌ NO MATCH: Rappresentante legale vuoto")
-                    
-# Genera anteprima con try/catch dettagliato
-try:
-    preview_text = self._generate_preview_text(form_data)
-
-    if not preview_text:
-        st.error("❌ Anteprima vuota - nessun testo generato")
-    elif len(preview_text) < 100:
-        st.warning("⚠️ Anteprima molto breve - possibile errore nei dati")
-        st.code(preview_text)
-    else:
-        st.success("✅ Anteprima generata correttamente")
-
-    # Aggiungi debug per soci nell'anteprima
-    st.write("**Debug Soci nell'Anteprima:**")
-    soci_debug = form_data.get('soci', [])
-    for i, socio in enumerate(soci_debug):
-        st.write(f"Socio {i+1}: {socio.get('nome', 'NOME MANCANTE')}")
-        st.write(f"  Tipo Soggetto: {socio.get('tipo_soggetto', 'NON SPECIFICATO')}")
-        st.write(f"  Rappresentante Legale: {socio.get('rappresentante_legale', 'NON SPECIFICATO')}")
-
-except Exception as e:
-    st.error(f"❌ Errore nella generazione dell'anteprima: {e}")
-    preview_text = "Errore nella generazione dell'anteprima"
-    # Aggiungi log dettagliato dell'errore
-    st.error(f"Tipo di errore: {type(e).__name__}")
-    st.error(f"Dettagli errore: {str(e)}")
-    if hasattr(e, '__dict__'):
-        st.write("Dettagli aggiuntivi:", e.__dict__)
-                    
-                    # Campo di testo modificabile per l'anteprima
                     edited_preview_text = st.text_area(
-                        "Modifica l'anteprima qui (il documento finale userà questo testo):",
+                        "Anteprima del Verbale (modificabile):",
                         value=preview_text,
-                        height=400,
+                        height=600,
                         key="editable_preview_text"
                     )
-                    # Salva il testo modificato nello stato della sessione per usarlo nella generazione del documento
+                    # Salva il testo per la generazione finale
                     st.session_state['final_document_text'] = edited_preview_text
-                    
-                    # Statistiche anteprima
-                    if 'preview_text' in locals():
-                        word_count = len(preview_text.split())
-                        char_count = len(preview_text)
-                        st.caption(f"📊 Statistiche: {word_count} parole, {char_count} caratteri")
-                        
-                        # Pulsante per copiare
-                        st.code(preview_text[:200] + "..." if len(preview_text) > 200 else preview_text)
-                        st.error(f"❌ Errore nella generazione dell'anteprima: {str(e)}")
-                        st.code(f"Errore dettagliato: {repr(e)}")
-                        
-                        # Debug traceback
-                        import traceback
-                        st.code(traceback.format_exc())
-                        
-                        # Mostra i dati per debug
-                        st.write("🔍 **Dati completi per debug:**")
-                        st.json(form_data)
-                        
+                else:
+                    st.warning("⚠️ L'anteprima non ha generato alcun testo. Controlla i dati inseriti.")
+
             except Exception as e:
-                st.error(f"❌ Errore generale nell'anteprima: {str(e)}")
-                import traceback
-                st.code(traceback.format_exc())
+                st.error(f"❌ Si è verificato un errore durante la generazione dell'anteprima.")
+                st.exception(e)
     
     def _generate_preview_text(self, data: dict) -> str:
         """Genera un'anteprima testuale del verbale seguendo il formato esatto richiesto"""
