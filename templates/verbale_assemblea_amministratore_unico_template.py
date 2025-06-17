@@ -926,8 +926,7 @@ Il Presidente                    Il Segretario
         p = doc.add_paragraph(style='BodyText')
         p.add_run("Segue breve discussione tra i soci al termine della quale si passa alla votazione con voto palese in forza della quale il Presidente constata che, all'unanimità,")
         
-        p = doc.add_paragraph(style='BodyText')
-        p.add_run("l'assemblea", style='BodyText')
+        p = doc.add_paragraph("l'assemblea", style='BodyText')
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         
         p = doc.add_paragraph(style='BodyText')
