@@ -231,6 +231,17 @@ class BaseVerbaleTemplate(DocumentTemplate):
         run.font.name = 'Times New Roman'
         run.font.size = Pt(12)
 
+    def _add_professional_signatures(self, doc, data):
+        """Aggiunge le firme con uno stile più "professionale".
+        
+        Al momento reimpiega la logica di `_add_signatures`, ma è
+        definita come metodo separato così i template che la richiedono
+        non sollevano AttributeError e, in futuro, potremo personalizzare
+        facilmente il layout delle firme professionali in un solo punto.
+        """
+        # Riutilizza la logica standard per ora
+        self._add_signatures(doc, data)
+
     def _setup_professional_document(self, data):
         """Configura un documento con formattazione professionale"""
         doc = Document()
