@@ -580,8 +580,15 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
         return doc
     
     def _setup_document_styles(self, doc):
-        """Configura gli stili del documento in modo più robusto e completo."""
+        """Configura gli stili del documento, assicurandosi che esistano gli stili di base (es. BodyText)."""
+        # Richiama l'implementazione della classe base, che crea TitoloSocieta, TitoloVerbale e BodyText
+        try:
+            super()._setup_document_styles(doc)
+        except Exception:
+            pass
+
         styles = doc.styles
+        # Eventuali stili aggiuntivi specifici di questo template possono essere definiti qui in futuro
 
     def _analyze_text_structure(self, text: str) -> list:
         """

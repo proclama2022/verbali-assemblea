@@ -321,3 +321,70 @@ class BaseVerbaleTemplate(DocumentTemplate):
             else:
                 line = f"il Sig. {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
         return line
+
+    def add_paragraph_with_font(self, doc, text: str,
+                                 size: Pt = Pt(12),
+                                 font_name: str = "Times New Roman",
+                                 bold: bool = False,
+                                 underline: bool = False,
+                                 alignment=None,
+                                 space_before: Pt | None = None,
+                                 space_after: Pt | None = None,
+                                 left_indent: Inches | None = None):
+        """Crea un paragrafo con formattazione semplificata.
+
+        Questo helper evita ripetizione di codice nei template specifici
+        e garantisce uniformità dello stile.
+        """
+        try:
+            p = doc.add_paragraph(style='BodyText')
+        except Exception:
+            p = doc.add_paragraph()
+
+        run = p.add_run(str(text))
+        run.font.name = font_name
+        run.font.size = size
+        run.bold = bold
+        run.underline = underline
+
+        if alignment is not None:
+            p.alignment = alignment
+        if space_before is not None:
+            p.paragraph_format.space_before = space_before
+        if space_after is not None:
+            p.paragraph_format.space_after = space_after
+        if left_indent is not None:
+            p.paragraph_format.left_indent = left_indent
+
+        return p
+
+    def _add_signature_table(self, doc: Document, data: dict):
+        """Crea una tabella di firme standard (Presidente | Segretario) e la restituisce.
+        Questo helper è usato da template che desiderano un layout con linee
+        e nomi centrati in fondo al documento.
+        """
+        table = doc.add_table(rows=2, cols=2)
+        table.style = "Table Grid"
+
+        # Prima riga: linee firma
+        for cell in table.rows[0].cells:
+            p = cell.paragraphs[0]
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = p.add_run("_____________________")
+            run.font.name = "Times New Roman"
+            run.font.size = Pt(12)
+
+        # Seconda riga: nomi + ruoli
+        presidente = data.get("presidente", "[PRESIDENTE]")
+        segretario = data.get("segretario", "[SEGRETARIO]")
+
+        labels = [(presidente, "Il Presidente"), (segretario, "Il Segretario")]
+        for idx, cell in enumerate(table.rows[1].cells):
+            nome, ruolo = labels[idx]
+            p = cell.paragraphs[0]
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = p.add_run(f"{nome}\n{ruolo}")
+            run.font.name = "Times New Roman"
+            run.font.size = Pt(12)
+
+        return table

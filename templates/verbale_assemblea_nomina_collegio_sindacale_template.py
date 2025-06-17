@@ -150,6 +150,9 @@ class VerbaleNominaCollegioSindacaleTemplate(BaseVerbaleTemplate):
         
         # Dati collegio sindacale
         collegio_members = data.get('collegio_sindacale', [])
+        # Se per compatibilità il campo contiene un boolean invece di una lista, usa il campo "sindaci"
+        if not isinstance(collegio_members, list):
+            collegio_members = data.get('sindaci', [])
         durata_incarico = data.get('durata_incarico', '[DURATA INCARICO]')
         compenso = data.get('compenso_complessivo', '[COMPENSO]')
         motivo_nomina = data.get('motivo_nomina', '[MOTIVO NOMINA]')
@@ -678,21 +681,156 @@ _________________            _________________
         motivo_nomina = data.get('motivo_nomina', '[MOTIVO NOMINA]')
         socio_proponente = data.get('socio_proponente', '[SOCIO PROPONENTE]')
         collegio_members = data.get('collegio_sindacale', [])
+        # Se per compatibilità il campo contiene un boolean invece di una lista, usa il campo "sindaci"
+        if not isinstance(collegio_members, list):
+            collegio_members = data.get('sindaci', [])
+        durata_incarico = data.get('durata_incarico', '[DURATA INCARICO]')
+        compenso = data.get('compenso_complessivo', '[COMPENSO]')
         
-        # Informativa presidente
-        p = doc.add_paragraph()
-        p.add_run(f"Il Presidente informa l'assemblea che si rende necessaria la nomina del Collegio Sindacale poiché {motivo_nomina}.")
+        if isinstance(data_assemblea, str):
+            data_str = data_assemblea
+        else:
+            data_str = data_assemblea.strftime('%d/%m/%Y')
         
-        p = doc.add_paragraph()
-        p.add_run("Il Presidente ricorda all'assemblea quanto previsto dall'art. 2477 del Codice Civile e dall'atto costitutivo della società.")
+        # Generazione testo anteprima
+        text = f"""{denominazione.upper()}
+Sede in {sede}
+Capitale sociale Euro {capitale} i.v.
+Codice fiscale: {cf}
+
+Verbale di assemblea dei soci
+del {data_str}
+
+Oggi {data_str} alle ore {ora_assemblea} presso la sede sociale {sede}, si è tenuta l'assemblea generale dei soci, per discutere e deliberare sul seguente:
+
+Ordine del giorno
+{', '.join(data.get('punti_ordine_giorno', ['nomina del Collegio Sindacale della società']))}
+
+Assume la presidenza ai sensi dell'art. [...] dello statuto sociale il Sig. {presidente} {data.get('ruolo_presidente', 'Amministratore Unico')}, il quale dichiara e constata:
+
+1 - che l'assemblea risulta {data.get('tipo_assemblea', 'regolarmente convocata')}
+"""
+
+        # Aggiungi partecipazione in audioconferenza se prevista
+        if data.get('modalita_partecipazione', False):
+            text += "2 - che (come indicato anche nell'avviso di convocazione ed in conformità alle previsioni dell'art. [...] dello statuto sociale) l'intervento all'assemblea può avvenire anche in audioconferenza\n"
+            next_num = 3
+        else:
+            next_num = 2
         
-        # Proposta
-        p = doc.add_paragraph()
-        p.add_run(f"Prende la parola il socio sig. {socio_proponente} che propone di affidare il controllo legale dei conti ad un collegio sindacale composto dai Sigg. [nomi]. Ai sensi dell'art. 2400, ultimo comma del Codice Civile, prima dell'accettazione dell'incarico, i candidati hanno reso noti all'assemblea gli incarichi di amministrazione e di controllo da essi ricoperti presso altre società, mediante dichiarazioni scritte che resteranno depositate agli atti societari.")
+        # Aggiungi sezione partecipanti
+        text += f"{next_num} - che sono presenti/partecipano all'assemblea:\n"
+        text += f"l'{data.get('ruolo_presidente', 'Amministratore Unico')} nella persona del suddetto Presidente Sig. {presidente}\n"
         
-        # Discussione e votazione
-        p = doc.add_paragraph()
-        p.add_run("Segue breve discussione tra i soci al termine della quale si passa alla votazione con voto palese in forza della quale il Presidente constata che, all'unanimità, l'assemblea")
+        # Aggiungi soci
+        soci_presenti = data.get('soci_presenti', [])
+        soci_assenti = data.get('soci_assenti', [])
+
+        # Fallback per mantenere compatibilità se le nuove chiavi non ci sono
+        if not soci_presenti and not soci_assenti and 'soci' in data:
+            soci_presenti = [s for s in data.get('soci', []) if s.get('presente', True)]
+            soci_assenti = [s for s in data.get('soci', []) if not s.get('presente', True)]
+
+        if soci_presenti:
+            total_quota_euro = 0.0
+            total_quota_percentuale = 0.0
+            capitale_sociale_float = 0.0
+            try:
+                capitale_raw = str(data.get('capitale_sociale', '0')).replace('.', '').replace(',', '.')
+                capitale_sociale_float = float(capitale_raw)
+            except ValueError:
+                pass
+
+            for socio in soci_presenti:
+                if isinstance(socio, dict):
+                    try:
+                        quota_euro_str = str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.')
+                        total_quota_euro += float(quota_euro_str)
+                    except (ValueError, TypeError):
+                        pass
+
+                    perc_raw = socio.get('quota_percentuale', '')
+                    if perc_raw:
+                        try:
+                            total_quota_percentuale += float(str(perc_raw).replace('%', '').replace(',', '.'))
+                        except (ValueError, TypeError):
+                            pass
+                    else:
+                        try:
+                            euro_val = float(str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.'))
+                            if capitale_sociale_float > 0:
+                                total_quota_percentuale += (euro_val / capitale_sociale_float) * 100
+                        except (ValueError, TypeError):
+                            pass
+
+            formatted_total_quota_euro = CommonDataHandler.format_currency(total_quota_euro)
+            formatted_total_quota_percentuale = CommonDataHandler.format_percentage(total_quota_percentuale)
+
+            text += f"nonché i seguenti soci o loro rappresentanti, recanti complessivamente una quota pari a nominali euro {formatted_total_quota_euro} pari al {formatted_total_quota_percentuale} del Capitale Sociale:\n"
+            for socio in soci_presenti:
+                if isinstance(socio, dict):
+                    nome = socio.get('nome', '[NOME SOCIO]')
+                    quota_euro = CommonDataHandler.format_currency(socio.get('quota_euro', '0'))
+                    
+                    quota_perc = socio.get('quota_percentuale', '')
+                    if not quota_perc:
+                        try:
+                            euro_val = float(str(socio.get('quota_euro', '0')).replace('.', '').replace(',', '.'))
+                            quota_perc = CommonDataHandler.format_percentage((euro_val / capitale_sociale_float) * 100) if capitale_sociale_float > 0 else '[%]'
+                        except (ValueError, TypeError):
+                            quota_perc = '[%]'
+                    else:
+                        quota_perc = CommonDataHandler.clean_percentage(quota_perc)
+
+                    tipo_soggetto = socio.get('tipo_soggetto', 'Persona Fisica')
+                    tipo_partecipazione = socio.get('tipo_partecipazione', 'Diretto')
+                    delegato = socio.get('delegato', '').strip()
+                    rappresentante_legale = socio.get('rappresentante_legale', '').strip()
+
+                    linea_socio = ""
+                    if tipo_partecipazione == 'Delegato' and delegato:
+                        if tipo_soggetto == 'Società':
+                            linea_socio = f"il Sig. {delegato} delegato della società {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                        else:
+                            linea_socio = f"il Sig. {delegato} delegato del socio Sig. {nome} recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                    else:
+                        if tipo_soggetto == 'Società':
+                            if rappresentante_legale:
+                                linea_socio = f"la società {nome}, rappresentata dal Sig. {rappresentante_legale}, socia recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                            else:
+                                linea_socio = f"la società {nome} socia recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                        else:
+                            linea_socio = f"il Sig. {nome} socio recante una quota pari a nominali euro {quota_euro} pari al {quota_perc} del Capitale Sociale"
+                    
+                    text += f"{linea_socio}\n"
+
+        if soci_assenti:
+            text += "\nRisultano invece assenti i seguenti soci:\n"
+            for socio in soci_assenti:
+                if isinstance(socio, dict) and socio.get('nome'):
+                    text += f"- {socio.get('nome')}\n"
+
+        text += f"""
+{next_num+1} - che gli intervenuti sono legittimati alla presente assemblea;
+{next_num+2} - che tutti gli intervenuti si dichiarano edotti sugli argomenti posti all'ordine del giorno.
+
+I presenti all'unanimità chiamano a fungere da segretario il signor {segretario}, che accetta l'incarico.
+
+Il Presidente identifica tutti i partecipanti e si accerta che ai soggetti collegati mediante mezzi di telecomunicazione sia consentito seguire la discussione, trasmettere e ricevere documenti, intervenire in tempo reale, con conferma da parte di ciascun partecipante.
+
+Il Presidente constata e fa constatare che l'assemblea risulta {data.get('tipo_assemblea', 'regolarmente convocata')} e deve ritenersi valida ed atta a deliberare sul citato ordine del giorno.
+
+Si passa quindi allo svolgimento dell'ordine del giorno.
+
+*     *     *
+
+Il Presidente informa l'assemblea che si rende necessaria la nomina del Collegio Sindacale poiché {motivo_nomina}.
+
+Il Presidente ricorda all'assemblea quanto previsto dall'art. 2477 del Codice Civile e dall'atto costitutivo della società.
+
+Prende la parola il socio sig. {socio_proponente} che propone di affidare il controllo legale dei conti ad un collegio sindacale composto dai Sigg. [nomi]. Ai sensi dell'art. 2400, ultimo comma del Codice Civile, prima dell'accettazione dell'incarico, i candidati hanno reso noti all'assemblea gli incarichi di amministrazione e di controllo da essi ricoperti presso altre società, mediante dichiarazioni scritte che resteranno depositate agli atti societari.
+
+Segue breve discussione tra i soci al termine della quale si passa alla votazione con voto palese in forza della quale il Presidente constata che, all'unanimità, l'assemblea")
         
         # DELIBERA
         doc.add_paragraph()
