@@ -129,6 +129,9 @@ def main():
     # Load templates at startup
     loaded_count, available_templates = load_templates()
     
+    # Hotfix per rimuovere template non più esistenti
+    available_templates = [t for t in available_templates if t != 'verbale_standard']
+    
     if loaded_count > 0:
         st.success(f"✅ {loaded_count} template caricati: {', '.join(available_templates)}")
     else:
