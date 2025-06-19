@@ -174,7 +174,15 @@ del {data_str}
 Oggi {data_str} alle ore {ora_assemblea} presso la sede sociale {sede}, si è tenuta l'assemblea generale dei soci, per discutere e deliberare sul seguente:
 
 Ordine del giorno
-{', '.join(data.get('punti_ordine_giorno', ['nomina del Collegio Sindacale della società']))}
+"""
+
+        # Aggiungi punti dell'ordine del giorno
+        punti_odg = data.get('punti_ordine_giorno', ['nomina del Collegio Sindacale della società'])
+        for i, punto in enumerate(punti_odg, start=1):
+            text += f"{i}. {punto}\n"
+
+        text += f"""
+*     *     *
 
 Assume la presidenza ai sensi dell'art. [...] dello statuto sociale il Sig. {presidente} {data.get('ruolo_presidente', 'Amministratore Unico')}, il quale dichiara e constata:
 
@@ -513,9 +521,14 @@ _________________            _________________
         run.bold = True
         
         punti_odg = data.get('punti_ordine_giorno', ['nomina del Collegio Sindacale della società'])
-        for punto in punti_odg:
+        for i, punto in enumerate(punti_odg, start=1):
             p = doc.add_paragraph()
-            p.add_run(punto)
+            p.add_run(f"{i}. {punto}")
+        
+        # Separatore
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.add_run("*     *     *")
         
         doc.add_paragraph()
     
@@ -703,8 +716,7 @@ del {data_str}
 
 Oggi {data_str} alle ore {ora_assemblea} presso la sede sociale {sede}, si è tenuta l'assemblea generale dei soci, per discutere e deliberare sul seguente:
 
-Ordine del giorno
-{', '.join(data.get('punti_ordine_giorno', ['nomina del Collegio Sindacale della società']))}
+ORDINE DEL GIORNO
 
 Assume la presidenza ai sensi dell'art. [...] dello statuto sociale il Sig. {presidente} {data.get('ruolo_presidente', 'Amministratore Unico')}, il quale dichiara e constata:
 
@@ -830,25 +842,15 @@ Il Presidente ricorda all'assemblea quanto previsto dall'art. 2477 del Codice Ci
 
 Prende la parola il socio sig. {socio_proponente} che propone di affidare il controllo legale dei conti ad un collegio sindacale composto dai Sigg. [nomi]. Ai sensi dell'art. 2400, ultimo comma del Codice Civile, prima dell'accettazione dell'incarico, i candidati hanno reso noti all'assemblea gli incarichi di amministrazione e di controllo da essi ricoperti presso altre società, mediante dichiarazioni scritte che resteranno depositate agli atti societari.
 
-Segue breve discussione tra i soci al termine della quale si passa alla votazione con voto palese in forza della quale il Presidente constata che, all'unanimità, l'assemblea")
-        
-        # DELIBERA
-        doc.add_paragraph()
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        run = p.add_run("D E L I B E R A:")
-        run.bold = True
-        
-        doc.add_paragraph()
-        
-        # Nomina collegio
-        durata_incarico = data.get('durata_incarico', '[DURATA INCARICO]')
-        
-        p = doc.add_paragraph()
-        p.add_run(f"di nominare un Collegio Sindacale, composto di tre membri effettivi e due supplenti, che dureranno in carica {durata_incarico}, nelle persone dei signori:")
-        
-        # Elenco membri
-        for membro in collegio_members:
+Segue breve discussione tra i soci al termine della quale si passa alla votazione con voto palese in forza della quale il Presidente constata che, all'unanimità, l'assemblea
+
+DELIBERA:
+
+di nominare un Collegio Sindacale, composto di tre membri effettivi e due supplenti, che dureranno in carica {durata_incarico}, nelle persone dei signori:
+"""
+
+        # Aggiungi membri del collegio
+        for i, membro in enumerate(collegio_members):
             nome = membro.get('nome', '[NOME]')
             nato_a = membro.get('nato_a', '[LUOGO NASCITA]')
             nato_il = membro.get('nato_il', '[DATA NASCITA]')
@@ -856,7 +858,6 @@ Segue breve discussione tra i soci al termine della quale si passa alla votazion
                 nato_il_str = nato_il.strftime('%d/%m/%Y')
             else:
                 nato_il_str = str(nato_il)
-            
             residente = membro.get('residente', '[LUOGO RESIDENZA]')
             cf_membro = membro.get('codice_fiscale', '[CODICE FISCALE]')
             
@@ -870,36 +871,44 @@ Segue breve discussione tra i soci al termine della quale si passa alla votazion
             albo_serie = membro.get('albo_serie_gu', '[SERIE GU]')
             ruolo = membro.get('ruolo', '[RUOLO]')
             
-            p = doc.add_paragraph()
-            p.add_run(f"{nome} nato a {nato_a} il {nato_il_str}, residente in {residente}, codice fiscale {cf_membro}, Revisore Contabile pubblicato sulla G.U. in data {albo_data_str} N. {albo_num}, {albo_serie} serie speciale; {ruolo};")
-        
-        # Compenso
-        compenso = data.get('compenso_complessivo', '[COMPENSO]')
-        p = doc.add_paragraph()
-        p.add_run(f"di corrispondere ai membri effettivi del Collegio Sindacale un compenso annuo complessivo pari a euro {compenso}")
-        
-        doc.add_paragraph()
-        
-        # Accettazione
+            text += f"{nome} nato a {nato_a} il {nato_il_str}, residente in {residente}, codice fiscale {cf_membro}, Revisore Contabile pubblicato sulla G.U. in data {albo_data_str} N. {albo_num}, {albo_serie} serie speciale; {ruolo};\n"
+
+        text += f"""
+di corrispondere ai membri effettivi del Collegio Sindacale un compenso annuo complessivo pari a euro {compenso}
+"""
+
+        # Aggiunta presenza membri se applicabile
         if data.get('membri_presenti', False):
             qualita = data.get('qualita_presenza', 'invitati')
-            p = doc.add_paragraph()
-            p.add_run(f"I Sigg. [nomi], presenti in assemblea in qualità di {qualita} accettano l'incarico e ringraziano l'assemblea per la fiducia accordata.")
+            text += f"""
+I Sigg. [nomi], presenti in assemblea in qualità di {qualita} accettano l'incarico e ringraziano l'assemblea per la fiducia accordata.
+"""
         else:
-            p = doc.add_paragraph()
-            p.add_run("[L'accettazione della carica da parte dei neo-nominati potrà avvenire successivamente]")
-        
-        # Nota controllo contabile
+            text += f"""
+[L'accettazione della carica da parte dei neo-nominati potrà avvenire successivamente]
+"""
+
+        # Nota sul controllo contabile
         if data.get('controllo_contabile_collegio', True):
-            p = doc.add_paragraph()
-            p.add_run("[Verificare se l'atto costitutivo non dispone diversamente, il controllo contabile è esercitato dal collegio sindacale].")
-        
-        # Separatore
-        p = doc.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p.add_run("*     *     *")
-        
-        doc.add_paragraph()
+            text += f"""
+[Verificare se l'atto costitutivo non dispone diversamente, il controllo contabile è esercitato dal collegio sindacale].
+"""
+
+        text += """
+*     *     *
+
+Il Presidente constata che l'ordine del giorno è esaurito e che nessuno chiede la parola.
+
+Viene quindi redatto il presente verbale e dopo averne data lettura, il Presidente constata che l'assemblea all'unanimità, con voto palese, ne approva il testo.
+
+L'assemblea viene sciolta alle ore [...].
+
+
+Il Presidente                    Il Segretario
+_________________            _________________
+"""
+
+        return text
     
     def _add_closing_section(self, doc, data):
         """Aggiungi sezione di chiusura"""

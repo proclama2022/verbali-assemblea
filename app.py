@@ -130,7 +130,7 @@ def main():
     loaded_count, available_templates = load_templates()
     
     # Hotfix per rimuovere template non più esistenti
-    available_templates = [t for t in available_templates if t != 'verbale_standard']
+    available_templates = [t for t in available_templates if t not in ('verbale_standard', 'bilancio', 'verbale_assemblea_approvazione_bilancio')]
     
     if loaded_count > 0:
         st.success(f"✅ {loaded_count} template caricati: {', '.join(available_templates)}")
@@ -151,7 +151,7 @@ def main():
                 'verbale_semplice': '📝 Verbale Semplice',
                 'nomina_amministratore': '👤 Nomina Amministratore',
                 'revoca_amministratore': '❌ Revoca Amministratore',
-                'bilancio': '📊 Approvazione Bilancio',
+                'verbale_assemblea_template': '📊 Approvazione Bilancio',
                 'nomina_revisore': '🔍 Nomina del Revisore',
                 'nomina_collegio_sindacale': '🏛️ Nomina Collegio Sindacale',
                 'ratifica_operato': '⚖️ Ratifica Operato dell\'Organo Amministrativo',
@@ -167,9 +167,9 @@ def main():
             if not st.session_state.template_locked:
                 st.markdown("**Tipo di verbale:**")
                 
-                # Dropdown semplice
-                display_options = [(template, template_display_names.get(template, template.replace('_', ' ').title())) 
-                                 for template in available_templates]
+                # Dropdown semplice (esclude i vecchi slug 'bilancio' e 'verbale_assemblea_approvazione_bilancio')
+                display_options = [(template, template_display_names.get(template, template.replace('_', ' ').title()))
+                                 for template in available_templates if template not in ('bilancio', 'verbale_assemblea_approvazione_bilancio')]
                 
                 selected_option = st.selectbox(
                     "Seleziona:",
@@ -224,6 +224,19 @@ def main():
         st.markdown(f"• Template: {template_status}")
         st.markdown(f"• Documento: {doc_status}")
         st.markdown(f"• Dati estratti: {info_status}")
+        
+        # Se esiste una visura salvata, mostra opzioni rapide
+        if 'saved_visura' in st.session_state:
+            st.markdown("---")
+            st.markdown("🏢 **Visura salvata disponibile**")
+            if st.button("📋 Usa visura salvata", key="btn_use_saved_visura", use_container_width=True):
+                st.session_state.extracted_info = st.session_state.saved_visura.copy()
+                st.success("✅ Visura caricata nei dati estratti")
+                st.rerun()
+            if st.button("🗑️ Rimuovi visura", key="btn_remove_saved_visura", type="secondary", use_container_width=True):
+                del st.session_state['saved_visura']
+                st.success("🗑️ Visura rimossa dalla sessione")
+                st.rerun()
         
         # Reset rapido
         if st.button("🗑️ Reset", use_container_width=True):
@@ -390,6 +403,12 @@ def main():
                             st.success("✅ Informazioni aggiornate!")
                             st.info("📝 **Ora puoi generare il documento** nella tab 'Genera Documento'")
                             st.rerun()
+                
+                # Offri la possibilità di salvare la visura per riuso
+                if document_type == 'visura':
+                    if st.button("💾 Salva come visura per altri verbali", key="btn_save_visura"):
+                        st.session_state.saved_visura = st.session_state.extracted_info.copy()
+                        st.success("🏢 Visura salvata per questa sessione!")
     
     with tab3:
         st.header("📑 Estrazione Multi-Documenti")
@@ -588,6 +607,14 @@ def main():
             else:
                 st.success("✅ **Disponibile:** Documento caricato")
                 
+            # Se c'è una visura salvata, permetti di caricarla al volo
+            if 'saved_visura' in st.session_state:
+                st.success("🏢 Visura salvata trovata")
+                if st.button("📋 Carica visura salvata", key="btn_load_visura_generate"):
+                    st.session_state.extracted_info = st.session_state.saved_visura.copy()
+                    st.success("✅ Visura caricata! Ricarico l'app...")
+                    st.rerun()
+            
             st.error("❌ **Manca:** Informazioni estratte")
             
             # Opzione per usare dati di esempio

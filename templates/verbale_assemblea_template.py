@@ -16,7 +16,7 @@ from document_templates import DocumentTemplate, DocumentTemplateFactory
 from common_data_handler import CommonDataHandler
 from base_verbale_template import BaseVerbaleTemplate
 from docx import Document
-from docx.shared import Inches, Pt
+from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.enum.style import WD_STYLE_TYPE
 from datetime import date
@@ -141,6 +141,10 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
         
         if show_preview:
             try:
+                # Rimuovi il pannello di personalizzazione per semplificare
+                # Ora l'ordine del giorno è sempre strutturato e uniforme
+                st.info("ℹ️ L'ordine del giorno è ora generato automaticamente in formato strutturato per garantire uniformità e completezza.")
+                
                 # Debug: Mostra i dati passati al template
                 with st.expander("Debug: Dati inviati per l'anteprima"):
                     st.json(form_data)
@@ -222,24 +226,26 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
             
             preview += f"Oggi {data_str} alle ore {ora_inizio} presso la sede sociale {luogo}, si è tenuta l'assemblea generale dei soci, per discutere e deliberare sul seguente:\n"
             
-            # Ordine del giorno
-            preview += "Ordine del giorno\n"
-            
-            # Data chiusura bilancio
-            data_chiusura = data.get('data_chiusura')
-            if data_chiusura:
-                try:
-                    if hasattr(data_chiusura, 'strftime'):
-                        data_chiusura_str = data_chiusura.strftime('%d/%m/%Y')
+            # Ordine del giorno (sezione formale all'interno del verbale)
+            preview += "ORDINE DEL GIORNO\n\n"
+
+            punti_odg_formale = data.get('punti_ordine_giorno', [])
+
+            if punti_odg_formale and isinstance(punti_odg_formale, list):
+                for idx, punto in enumerate(punti_odg_formale, 1):
+                    punto_clean = str(punto).strip()
+                    if not re.match(r"^\d+[\.\)]\s*", punto_clean):
+                        preview += f"{idx}. {punto_clean}\n"
                     else:
-                        data_chiusura_str = str(data_chiusura)
-                except:
-                    data_chiusura_str = '[DATA CHIUSURA]'
+                        preview += f"{punto_clean}\n"
             else:
-                data_chiusura_str = '[DATA CHIUSURA]'
+                # Fallback minimo se non vengono forniti punti personalizzati
+                data_chiusura_odg = data.get('data_chiusura_bilancio', data.get('data_assemblea', date.today()))
+                preview += f"1. Approvazione del bilancio d'esercizio al {data_chiusura_odg}\n"
+                preview += "2. Destinazione del risultato d'esercizio\n"
             
-            preview += f"Approvazione del Bilancio al {data_chiusura_str} e dei documenti correlati;\n"
-            preview += "Delibere consequenziali.\n"
+            # Aggiungiamo sempre un separatore visivo dopo l'Ordine del Giorno iniziale
+            preview += "\n*     *     *\n\n"
             
             # Presidenza
             presidente = data.get('presidente', '[PRESIDENTE]')
@@ -421,10 +427,41 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
             else:
                 preview += "Il Presidente constata e fa constatare che l'assemblea risulta regolarmente convocata e deve ritenersi valida ed atta a deliberare sul citato ordine del giorno.\n"
             
-            preview += "Si passa quindi allo svolgimento dell'ordine del giorno.\n"
-            preview += "*     *     *\n"
+            preview += "Si passa quindi allo svolgimento dell'ordine del giorno.\n\n"
+            
+            # ORDINE DEL GIORNO (seconda sezione formale)
+            preview += "ORDINE DEL GIORNO\n\n"
+
+            punti_odg_seconda = data.get('punti_ordine_giorno', [])
+
+            if punti_odg_seconda and isinstance(punti_odg_seconda, list):
+                for idx, punto in enumerate(punti_odg_seconda, 1):
+                    punto_clean = str(punto).strip()
+                    if not re.match(r"^\d+[\.\)]\s*", punto_clean):
+                        preview += f"{idx}. {punto_clean}\n"
+                    else:
+                        preview += f"{punto_clean}\n"
+            else:
+                data_chiusura_odg = data.get('data_chiusura_bilancio', data.get('data_assemblea', date.today()))
+                preview += f"1. Approvazione del bilancio d'esercizio al {data_chiusura_odg}\n"
+                preview += "2. Destinazione del risultato d'esercizio\n"
+            
+            # Aggiungi altri punti se presenti
+            altri_punti = data.get('altri_punti_ordine_giorno', [])
+            if altri_punti:
+                for i, punto in enumerate(altri_punti, 3):
+                    if punto and str(punto).strip():
+                        preview += f"{i}. {str(punto).strip()}\n"
+            
+            preview += "\n*     *     *\n\n"
             
             # Primo punto - Bilancio
+            # Calcola la stringa della data di chiusura bilancio per il preview
+            data_chiusura_raw = data.get('data_chiusura_bilancio', data.get('data_assemblea', date.today()))
+            if hasattr(data_chiusura_raw, 'strftime'):
+                data_chiusura_str = data_chiusura_raw.strftime('%d/%m/%Y')
+            else:
+                data_chiusura_str = str(data_chiusura_raw)
             preview += f"In relazione al primo punto il presidente legge il bilancio al {data_chiusura_str} composto da stato patrimoniale, conto economico e nota integrativa (allegati di seguito al presente verbale);\n"
             
             # Collegio sindacale (se presente)
@@ -503,8 +540,8 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
         
         # Controlla se c'è un testo modificato dall'utente nell'anteprima
         if hasattr(st.session_state, 'final_document_text') and st.session_state.final_document_text:
-            # Usa il testo modificato dall'utente
-            return self._create_document_from_text(st.session_state.final_document_text)
+            # Usa il testo modificato dall'utente, passando anche i dati del form
+            return self._create_document_from_text(st.session_state.final_document_text, data)
         else:
             # Genera il documento normalmente se non c'è testo modificato
             # Utilizza il template .docx esistente per mantenere la formattazione
@@ -542,6 +579,10 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
             self._add_preliminary_statements(doc, data)
             
             # Svolgimento ordine del giorno (specifico per approvazione bilancio)
+            # Aggiungi sempre l'ordine del giorno con titolo in blu
+            doc.add_paragraph()
+            p = doc.add_paragraph("ORDINE DEL GIORNO", style='SectionHeader')
+            p.runs[0].font.color.rgb = RGBColor(0x00, 0x00, 0xFF)  # Blue
             self._add_bilancio_discussion(doc, data)
             
             # Chiusura
@@ -552,7 +593,7 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
             
             return doc
     
-    def _create_document_from_text(self, text: str) -> Document:
+    def _create_document_from_text(self, text: str, data: dict = None) -> Document:
         """Crea un documento Word dal testo modificato dall'utente con formattazione automatica"""
         # Utilizza il template .docx esistente per mantenere la formattazione
         import os
@@ -581,7 +622,44 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
         for section in sections:
             self._add_formatted_section(doc, section)
         
+        # SOLUZIONE DEFINITIVA UNIFICATA: Genera sempre l'ordine del giorno strutturato
+        # e integra con il testo utente in modo coerente
+        if data:
+            # 1. Aggiungi il testo utente (escludendo eventuali sezioni ordine del giorno)
+            cleaned_text = self._remove_existing_odg(user_text)
+            self._add_user_text(doc, cleaned_text)
+            
+            # 2. Aggiungi SEMPRE l'ordine del giorno strutturato
+            self._add_bilancio_discussion(doc, data)
+        
         return doc
+    
+    def _remove_existing_odg(self, text: str) -> str:
+        """Rimuove eventuali sezioni ordine del giorno esistenti dal testo utente"""
+        if not text:
+            return text
+            
+        # Pattern per identificare la sezione ordine del giorno
+        patterns = [
+            r"ORDINE DEL GIORNO[\s\S]*?(?=\n\n|$)",
+            r"O\s*\.\s*D\s*\.\s*G\.[\s\S]*?(?=\n\n|$)",
+            r"Ordine del giorno[\s\S]*?(?=\n\n|$)"
+        ]
+        
+        cleaned_text = text
+        for pattern in patterns:
+            cleaned_text = re.sub(pattern, "", cleaned_text, flags=re.IGNORECASE)
+        
+        return cleaned_text.strip()
+    
+    def _add_user_text(self, doc, text: str):
+        """Aggiunge il testo utente pulito al documento"""
+        if not text:
+            return
+            
+        sections = self._analyze_text_structure(text)
+        for section in sections:
+            self._add_formatted_section(doc, section)
     
     def _setup_document_styles(self, doc):
         """Configura gli stili del documento, assicurandosi che esistano gli stili di base (es. BodyText)."""
@@ -1080,7 +1158,14 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
         doc.add_paragraph("1. Approvazione del bilancio d'esercizio al [Data Chiusura Bilancio]", style='SectionHeader') # Sottotitolo per il punto
         # doc.add_paragraph("PRIMO PUNTO ALL'ORDINE DEL GIORNO", style='SectionHeader') # Alternativa
 
-        data_chiusura_bilancio = data.get('data_chiusura_bilancio', data.get('data_assemblea', date.today())).strftime('%d/%m/%Y')
+        # Gestione sicura della data di chiusura bilancio
+        data_chiusura_raw = data.get('data_chiusura_bilancio', data.get('data_assemblea', date.today()))
+        if isinstance(data_chiusura_raw, str):
+            # Se è già una stringa, usala direttamente
+            data_chiusura_bilancio = data_chiusura_raw
+        else:
+            # Se è un oggetto date, formattala
+            data_chiusura_bilancio = data_chiusura_raw.strftime('%d/%m/%Y')
         
         text_illustrazione = f"Il Presidente illustra ai presenti il progetto di Bilancio d'esercizio chiuso al {data_chiusura_bilancio}, "
         text_illustrazione += "composto da Stato Patrimoniale, Conto Economico e Nota Integrativa. "
@@ -1117,7 +1202,7 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
         doc.add_paragraph(text_delibera_bilancio, style='BodyText')
         doc.add_paragraph("DELIBERA", style='SectionHeader') # Usare uno stile specifico per la parola DELIBERA
         
-        doc.add_paragraph(f"1. di approvare il Bilancio d'esercizio della Società chiuso al {data_chiusura_bilancio}, comprensivo di Stato Patrimoniale, Conto Economico e Nota Integrativa, così come presentato dall'organo amministrativo e corredato dalle relazioni dell'organo di controllo e del revisore legale, ove presenti.", style='ListNumber')
+        doc.add_paragraph(f"1. di approvare il Bilancio d'esercizio della Società chiuso al {data_chiusura_bilancio}, comprensivo di Stato Patrimoniale, Conto Economico e Nota Integrativa, così come presentato dall'organo amministrativo e corredato dalle relazioni dell'organo di controllo e del revisore legale, ove presenti.", style='Normal')
         
         # Secondo punto - Destinazione risultato
         doc.add_paragraph("2. Destinazione del risultato d'esercizio", style='SectionHeader')
@@ -1133,7 +1218,7 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
             doc.add_paragraph("La proposta prevede di destinare tale risultato come segue:", style='BodyText')
             for dest in proposte_destinazione:
                 if str(dest).strip():
-                    doc.add_paragraph(f"- {str(dest).strip()};", style='ListBullet')
+                    doc.add_paragraph(f"- {str(dest).strip()};", style='Normal')
         else:
             doc.add_paragraph("Non vi sono proposte specifiche per la destinazione del risultato.", style='BodyText')
 
@@ -1147,12 +1232,12 @@ class VerbaleApprovazioneBilancioTemplate(BaseVerbaleTemplate):
         
         if proposte_destinazione:
             for i, dest in enumerate(proposte_destinazione, 1):
-                 doc.add_paragraph(f"{i}. di destinare l'{risultato_esercizio_tipo} d'esercizio come segue: {str(dest).strip()};", style='ListNumber')
+                 doc.add_paragraph(f"{i}. di destinare l'{risultato_esercizio_tipo} d'esercizio come segue: {str(dest).strip()};", style='Normal')
         else: # Esempio se non ci sono proposte specifiche, magari si riporta a nuovo o si copre la perdita
             if risultato_esercizio_tipo == "utile":
-                doc.add_paragraph(f"1. di riportare a nuovo l'{risultato_esercizio_tipo} d'esercizio pari a Euro {risultato_esercizio_val}.", style='ListNumber')
+                doc.add_paragraph(f"1. di riportare a nuovo l'{risultato_esercizio_tipo} d'esercizio pari a Euro {risultato_esercizio_val}.", style='Normal')
             else:
-                doc.add_paragraph(f"1. di coprire la {risultato_esercizio_tipo} d'esercizio pari a Euro {risultato_esercizio_val} mediante [specificare come].", style='ListNumber')
+                doc.add_paragraph(f"1. di coprire la {risultato_esercizio_tipo} d'esercizio pari a Euro {risultato_esercizio_val} mediante [specificare come].", style='Normal')
         
         # Aggiungere qui la gestione per ALTRI PUNTI ALL'ORDINE DEL GIORNO
         # Si potrebbe iterare su data.get('altri_punti_odg_discussione_delibere', [])
