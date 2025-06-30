@@ -95,8 +95,36 @@ class VerbaleAmministratoreUnicoTemplate(BaseVerbaleTemplate):
         with col1:
             form_data["articolo_statuto_presidenza"] = st.text_input("Articolo statuto per presidenza", "15", key="art_presidenza_au")
             form_data["articolo_statuto_compensi"] = st.text_input("Articolo statuto per compensi", "20", key="art_compensi_au")
+            form_data["include_audioconferenza"] = st.checkbox("Includi menzione audioconferenza", value=True, key="audioconferenza_au")
+            form_data["tipo_assemblea"] = st.selectbox("Tipo assemblea", ["regolarmente convocata", "in seconda convocazione", "in sede straordinaria"], key="tipo_assemblea_au")
         with col2:
              form_data["socio_proponente"] = st.text_input("Socio proponente la nomina", "tutti i soci", key="socio_proponente_au")
+             form_data["articolo_statuto_audioconferenza"] = st.text_input("Articolo statuto audioconferenza", "16", key="art_audioconferenza_au")
+             form_data["tipo_votazione"] = st.selectbox("Tipo votazione", ["Unanimità", "Maggioranza"], key="tipo_votazione_au")
+             form_data["ora_chiusura"] = st.time_input("Ora chiusura (opzionale)", value=None, key="ora_chiusura_au")
+        
+        # Campi per voti contrari/astenuti se non unanimità
+        if form_data.get('tipo_votazione') == 'Maggioranza':
+            col1, col2 = st.columns(2)
+            with col1:
+                form_data["contrari"] = st.text_input("Soci contrari (se presenti)", key="contrari_au")
+            with col2:
+                form_data["astenuti"] = st.text_input("Soci astenuti (se presenti)", key="astenuti_au")
+        
+        # Campi compenso aggiuntivi
+        if form_data.get('include_compensi'):
+            form_data["modalita_liquidazione"] = st.selectbox("Modalità liquidazione compenso", ["periodicamente", "annualmente", "trimestralmente"], key="modalita_liquidazione_au")
+        
+        # Qualifica amministratore
+        form_data["qualifica"] = st.selectbox("Qualifica amministratore", ["socio", "terzo"], key="qualifica_au")
+        
+        # Presenza amministratore
+        st.subheader("👥 Presenza in Assemblea")
+        form_data["amministratore_presente"] = st.selectbox(
+            "L'amministratore nominato è presente all'assemblea?", 
+            ["Sì", "No"], 
+            key="amministratore_presente_au"
+        )
 
         return form_data
     
@@ -434,7 +462,15 @@ l'assemblea
 
 d e l i b e r a:
 
-di nominare quale Amministratore Unico della società il Sig. {nome_admin}, nato a {nato_a} il {nato_il}, codice fiscale {cf_admin} e residente in {domicilio}, il quale, presente all'assemblea, dichiara di accettare la carica e di non trovarsi in alcuna delle cause di ineleggibilità o di incompatibilità previste dalla legge e dallo statuto sociale.
+di nominare quale Amministratore Unico della società il Sig. {nome_admin}, nato a {nato_a} il {nato_il}, codice fiscale {cf_admin} e residente in {domicilio}"""
+            
+            # Gestisci presenza/assenza dell'amministratore
+            if amministratore_presente == 'Sì':
+                deliberazione_section += f", il quale, presente all'assemblea, dichiara di accettare la carica e di non trovarsi in alcuna delle cause di ineleggibilità o di incompatibilità previste dalla legge e dallo statuto sociale."
+            else:
+                deliberazione_section += f", il quale ha già dichiarato per iscritto di accettare la carica e di non trovarsi in alcuna delle cause di ineleggibilità o di incompatibilità previste dalla legge e dallo statuto sociale."
+
+            deliberazione_section += f"""
 
 che l'amministratore resti in carica {durata_incarico.lower()}"""
 
@@ -448,9 +484,16 @@ di attribuire all'amministratore unico testè nominato il compenso annuo ed omni
             
             # Accettazione
             qualifica = admin_unico.get('qualifica', 'socio')
-            accettazione_section = f"""
+            amministratore_presente = data.get('amministratore_presente', 'Sì')
+            
+            if amministratore_presente == 'Sì':
+                accettazione_section = f"""
 
 Il sig. {nome_admin}, presente in assemblea in qualità di {qualifica.lower()}, accetta l'incarico e ringrazia l'assemblea per la fiducia accordata."""
+            else:
+                accettazione_section = f"""
+
+Il sig. {nome_admin}, benché assente all'assemblea, ha preventivamente comunicato per iscritto la propria accettazione alla carica e dichiarato l'insussistenza di cause di ineleggibilità o incompatibilità."""
             
             # Chiusura
             ora_chiusura = data.get('ora_chiusura', data.get('ora_assemblea', '[Ora]'))
@@ -900,10 +943,10 @@ Il Presidente                    Il Segretario
         nome_admin = amministratore_unico.get('nome', '[Nome Amministratore]')
         
         p = doc.add_paragraph(style='BodyText')
-        if socio_proponente.lower() != 'il presidente':
-            run = p.add_run(f"Prende la parola il socio sig. {socio_proponente} che propone di nominare Amministratore Unico della società il sig. ")
+        if socio_proponente and socio_proponente.lower() not in ['il presidente', 'tutti i soci', '']:
+            p.add_run(f"Prende la parola il socio sig. {socio_proponente} che propone di nominare Amministratore Unico della società il sig. ")
         else:
-            run = p.add_run("Il Presidente propone di nominare Amministratore Unico della società il sig. ")
+            p.add_run("Il Presidente propone di nominare Amministratore Unico della società il sig. ")
 
         run = p.add_run(nome_admin)
         run.bold = True
@@ -923,8 +966,26 @@ Il Presidente                    Il Segretario
             p.add_run(f"Il Presidente invita anche l'assemblea a deliberare il compenso da attribuire all'organo amministrativo che verrà nominato, ai sensi dell'art. {articolo_statuto_compensi} dello statuto sociale.")
 
         # --- Votazione e delibera ---
+        tipo_votazione = data.get('tipo_votazione', 'Unanimità')
+        contrari = data.get('contrari', '')
+        astenuti = data.get('astenuti', '')
+        
         p = doc.add_paragraph(style='BodyText')
-        p.add_run("Segue breve discussione tra i soci al termine della quale si passa alla votazione con voto palese in forza della quale il Presidente constata che, all'unanimità,")
+        p.add_run("Segue breve discussione tra i soci al termine della quale si passa alla votazione con voto palese in forza della quale il Presidente constata che")
+        
+        if tipo_votazione == 'Unanimità':
+            p.add_run(", all'unanimità,")
+        else:
+            if contrari:
+                p.add_run(f", con il voto contrario dei Sigg. {contrari}")
+                if astenuti:
+                    p.add_run(f" e l'astensione dei Sigg. {astenuti},")
+                else:
+                    p.add_run(",")
+            elif astenuti:
+                p.add_run(f", con l'astensione dei Sigg. {astenuti},")
+            else:
+                p.add_run(", a maggioranza,")
         
         p = doc.add_paragraph("l'assemblea", style='BodyText')
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -946,7 +1007,13 @@ Il Presidente                    Il Segretario
         
         run = p.add_run(nome_admin)
         run.bold = True
-        p.add_run(f", nato a {nato_a} il {nato_il}, codice fiscale {cf_admin} e residente in {domicilio}, il quale, presente all'assemblea, dichiara di accettare la carica e di non trovarsi in alcuna delle cause di ineleggibilità o di incompatibilità previste dalla legge e dallo statuto sociale.")
+        
+        # Gestisci presenza/assenza dell'amministratore
+        amministratore_presente = data.get('amministratore_presente', 'Sì')
+        if amministratore_presente == 'Sì':
+            p.add_run(f", nato a {nato_a} il {nato_il}, codice fiscale {cf_admin} e residente in {domicilio}, il quale, presente all'assemblea, dichiara di accettare la carica e di non trovarsi in alcuna delle cause di ineleggibilità o di incompatibilità previste dalla legge e dallo statuto sociale.")
+        else:
+            p.add_run(f", nato a {nato_a} il {nato_il}, codice fiscale {cf_admin} e residente in {domicilio}, il quale ha già dichiarato per iscritto di accettare la carica e di non trovarsi in alcuna delle cause di ineleggibilità o di incompatibilità previste dalla legge e dallo statuto sociale.")
 
         # --- Punto 2: Durata incarico ---
         durata_incarico = data.get('durata_incarico', 'A tempo indeterminato')
@@ -959,11 +1026,17 @@ Il Presidente                    Il Segretario
             rimborso_text = " oltre al rimborso delle spese sostenute in ragione del suo ufficio" if data.get('rimborso_spese', True) else ""
             
             p = doc.add_paragraph(style='BodyText')
-            p.add_run(f"di attribuire all'amministratore unico testè nominato il compenso annuo ed omnicomprensivo pari a nominali euro {compenso_annuo} al lordo di ritenute fiscali e previdenziali{rimborso_text}. Il compenso verrà liquidato periodicamente, in ragione della permanenza in carica.")
+            p.add_run(f"di attribuire all'amministratore unico testè nominato il compenso annuo ed omnicomprensivo pari a nominali euro {compenso_annuo} al lordo di ritenute fiscali e previdenziali{rimborso_text}. Il compenso verrà liquidato {data.get('modalita_liquidazione', 'periodicamente')}, in ragione della permanenza in carica.")
 
         # --- Accettazione finale ---
+        qualifica = data.get('qualifica', 'socio')
+        amministratore_presente = data.get('amministratore_presente', 'Sì')
+        
         p = doc.add_paragraph(style='BodyText')
-        p.add_run(f"Il sig. {nome_admin}, presente in assemblea, accetta l'incarico e ringrazia l'assemblea per la fiducia accordata.")
+        if amministratore_presente == 'Sì':
+            p.add_run(f"Il sig. {nome_admin}, presente in assemblea in qualità di {qualifica.lower()}, accetta l'incarico e ringrazia l'assemblea per la fiducia accordata.")
+        else:
+            p.add_run(f"Il sig. {nome_admin}, benché assente all'assemblea, ha preventivamente comunicato per iscritto la propria accettazione alla carica e dichiarato l'insussistenza di cause di ineleggibilità o incompatibilità.")
 
     def _add_closing_section(self, doc, data):
         """Aggiunge la sezione di chiusura"""
