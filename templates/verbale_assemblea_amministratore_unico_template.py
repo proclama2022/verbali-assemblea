@@ -465,6 +465,7 @@ d e l i b e r a:
 di nominare quale Amministratore Unico della società il Sig. {nome_admin}, nato a {nato_a} il {nato_il}, codice fiscale {cf_admin} e residente in {domicilio}"""
             
             # Gestisci presenza/assenza dell'amministratore
+            amministratore_presente = data.get('amministratore_presente', 'Sì')
             if amministratore_presente == 'Sì':
                 deliberazione_section += f", il quale, presente all'assemblea, dichiara di accettare la carica e di non trovarsi in alcuna delle cause di ineleggibilità o di incompatibilità previste dalla legge e dallo statuto sociale."
             else:
@@ -484,7 +485,6 @@ di attribuire all'amministratore unico testè nominato il compenso annuo ed omni
             
             # Accettazione
             qualifica = admin_unico.get('qualifica', 'socio')
-            amministratore_presente = data.get('amministratore_presente', 'Sì')
             
             if amministratore_presente == 'Sì':
                 accettazione_section = f"""
