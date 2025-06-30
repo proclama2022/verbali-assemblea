@@ -210,7 +210,8 @@ Assume la presidenza ai sensi dell'art. {articolo_statuto_presidenza} dello stat
 
             presidente_line = None
             for amm in data.get('amministratori', []):
-                if amm.get('nome') == presidente:
+                nome_amm = amm.get('nome', '').strip().lower()
+                if nome_amm == str(presidente).strip().lower():
                     if amm.get('presente', True):
                         presidente_line = (
                             f"l'Amministratore Unico nella persona del suddetto Presidente Sig. {presidente}"
@@ -222,6 +223,23 @@ Assume la presidenza ai sensi dell'art. {articolo_statuto_presidenza} dello stat
                     else:
                         presidente_line = f"assente il Sig. {presidente} Amministratore Unico"
                     break
+
+            # Se non è stato trovato alcun amministratore coincidente con il presidente,
+            # controlliamo l'eventuale dizionario `amministratore_unico` presente nei dati
+            if not presidente_line and 'amministratore_unico' in data:
+                admin_unico = data.get('amministratore_unico', {})
+                nome_admin = str(admin_unico.get('nome', '')).strip().lower()
+                if nome_admin == str(presidente).strip().lower():
+                    if admin_unico.get('presente', True):
+                        presidente_line = (
+                            f"l'Amministratore Unico nella persona del suddetto Presidente Sig. {presidente}"
+                        )
+                    elif admin_unico.get('assente_giustificato', False):
+                        presidente_line = (
+                            f"assente giustificato il Sig. {presidente} Amministratore Unico il quale ha tuttavia rilasciato apposita dichiarazione scritta"
+                        )
+                    else:
+                        presidente_line = f"assente il Sig. {presidente} Amministratore Unico"
 
             if not presidente_line:
                 presidente_line = (
@@ -769,7 +787,8 @@ Il Presidente                    Il Segretario
 
         presidente_line = None
         for amm in data.get('amministratori', []):
-            if amm.get('nome') == presidente:
+            nome_amm = amm.get('nome', '').strip().lower()
+            if nome_amm == str(presidente).strip().lower():
                 if amm.get('presente', True):
                     presidente_line = f"l'{ruolo_presidente} nella persona del suddetto Presidente Sig. {presidente}"
                 elif amm.get('assente_giustificato', False):
@@ -780,6 +799,20 @@ Il Presidente                    Il Segretario
                 else:
                     presidente_line = f"assente il Sig. {presidente} {ruolo_presidente}"
                 break
+
+        if not presidente_line and 'amministratore_unico' in data:
+            admin_unico = data.get('amministratore_unico', {})
+            nome_admin = str(admin_unico.get('nome', '')).strip().lower()
+            if nome_admin == str(presidente).strip().lower():
+                if admin_unico.get('presente', True):
+                    presidente_line = f"l'{ruolo_presidente} nella persona del suddetto Presidente Sig. {presidente}"
+                elif admin_unico.get('assente_giustificato', False):
+                    presidente_line = (
+                        f"assente giustificato il Sig. {presidente} {ruolo_presidente} "
+                        "il quale ha tuttavia rilasciato apposita dichiarazione scritta"
+                    )
+                else:
+                    presidente_line = f"assente il Sig. {presidente} {ruolo_presidente}"
 
         if not presidente_line:
             presidente_line = f"l'{ruolo_presidente} nella persona del suddetto Presidente Sig. {presidente}"
