@@ -85,9 +85,23 @@ class VerbaleAmministratoreUnicoTemplate(BaseVerbaleTemplate):
         if form_data.get('include_compensi'):
             col1, col2 = st.columns(2)
             with col1:
-                form_data['compenso_annuo'] = st.text_input("Importo compenso annuo lordo (€)", "0,00", key="compenso_annuo_au")
+                form_data['compenso_annuo'] = st.text_input(
+                    "Importo compenso annuo lordo (€)",
+                    "0,00",
+                    key="compenso_annuo_au"
+                )
             with col2:
-                form_data['rimborso_spese'] = st.checkbox("Includi rimborso spese documentate", value=True, key="rimborso_spese_au")
+                form_data['rimborso_spese'] = st.checkbox(
+                    "Includi rimborso spese documentate",
+                    value=True,
+                    key="rimborso_spese_au"
+                )
+
+            form_data['modalita_liquidazione'] = st.selectbox(
+                "Modalità liquidazione",
+                ["Periodicamente", "Annuale", "A fine mandato"],
+                key="modalita_liquidazione_au"
+            )
         
         # Opzioni avanzate che erano presenti in versioni precedenti e sono utili alla generazione
         st.subheader("⚙️ Opzioni Avanzate del Verbale")
@@ -194,10 +208,30 @@ Assume la presidenza ai sensi dell'art. {articolo_statuto_presidenza} dello stat
 
 1 - che (come indicato anche nell'avviso di convocazione ed in conformità alle previsioni dell'art. {articolo_statuto_audioconferenza} dello statuto sociale) l'intervento all'assemblea può avvenire anche in audioconferenza"""
 
+            presidente_line = None
+            for amm in data.get('amministratori', []):
+                if amm.get('nome') == presidente:
+                    if amm.get('presente', True):
+                        presidente_line = (
+                            f"l'Amministratore Unico nella persona del suddetto Presidente Sig. {presidente}"
+                        )
+                    elif amm.get('assente_giustificato', False):
+                        presidente_line = (
+                            f"assente giustificato il Sig. {presidente} Amministratore Unico il quale ha tuttavia rilasciato apposita dichiarazione scritta"
+                        )
+                    else:
+                        presidente_line = f"assente il Sig. {presidente} Amministratore Unico"
+                    break
+
+            if not presidente_line:
+                presidente_line = (
+                    f"l'Amministratore Unico nella persona del suddetto Presidente Sig. {presidente}"
+                )
+
             presidente_section += f"""
 
-2 - che sono presenti/partecipano all'assemblea:     
-l'Amministratore Unico nella persona del suddetto Presidente Sig. {presidente}"""
+2 - che sono presenti/partecipano all'assemblea:
+{presidente_line}"""
             
             # Collegio sindacale se presente
             if data.get('include_collegio_sindacale', False):
@@ -696,54 +730,85 @@ Il Presidente                    Il Segretario
             p = doc.add_paragraph(style='BodyText')
         except KeyError:
             p = doc.add_paragraph()
-        
+
         presidente = data.get('presidente', '[PRESIDENTE]')
         ruolo_presidente = data.get('ruolo_presidente', 'Amministratore Unico')
-        
-        participants_text = f"Assume la presidenza ai sensi dell'art. [...] dello statuto sociale il Sig. {presidente} {ruolo_presidente}, il quale dichiara e constata:"
-        
-        run = p.add_run(participants_text)
+        art_pres = data.get('articolo_statuto_presidenza', '15')
+
+        intro_text = (
+            f"Assume la presidenza ai sensi dell'art. {art_pres} dello statuto sociale "
+            f"il Sig. {presidente} {ruolo_presidente}, il quale dichiara e constata:"
+        )
+        run = p.add_run(intro_text)
         run.font.name = 'Times New Roman'
         run.font.size = Pt(12)
-        
-        # Collegio Sindacale (se presente)
+
+        bullet_num = 1
+        if data.get('include_audioconferenza', True):
+            art_audio = data.get('articolo_statuto_audioconferenza', '16')
+            try:
+                p = doc.add_paragraph(style='BodyText')
+            except KeyError:
+                p = doc.add_paragraph()
+            run = p.add_run(
+                f"{bullet_num} - che (come indicato anche nell'avviso di convocazione ed in conformità "
+                f"alle previsioni dell'art. {art_audio} dello statuto sociale) l'intervento all'assemblea "
+                "può avvenire anche in audioconferenza"
+            )
+            run.font.name = 'Times New Roman'
+            run.font.size = Pt(12)
+            bullet_num += 1
+
+        try:
+            p = doc.add_paragraph(style='BodyText')
+        except KeyError:
+            p = doc.add_paragraph()
+        run = p.add_run(f"{bullet_num} - che sono presenti/partecipano all'assemblea:")
+        run.font.name = 'Times New Roman'
+        run.font.size = Pt(12)
+
+        presidente_line = None
+        for amm in data.get('amministratori', []):
+            if amm.get('nome') == presidente:
+                if amm.get('presente', True):
+                    presidente_line = f"l'{ruolo_presidente} nella persona del suddetto Presidente Sig. {presidente}"
+                elif amm.get('assente_giustificato', False):
+                    presidente_line = (
+                        f"assente giustificato il Sig. {presidente} {ruolo_presidente} "
+                        "il quale ha tuttavia rilasciato apposita dichiarazione scritta"
+                    )
+                else:
+                    presidente_line = f"assente il Sig. {presidente} {ruolo_presidente}"
+                break
+
+        if not presidente_line:
+            presidente_line = f"l'{ruolo_presidente} nella persona del suddetto Presidente Sig. {presidente}"
+
+        try:
+            p = doc.add_paragraph(style='BodyText')
+        except KeyError:
+            p = doc.add_paragraph()
+        run = p.add_run(presidente_line)
+        run.font.name = 'Times New Roman'
+        run.font.size = Pt(12)
+
         if data.get('include_collegio_sindacale', False):
             tipo_organo_controllo = data.get('tipo_organo_controllo', 'Collegio Sindacale')
             if tipo_organo_controllo == 'Collegio Sindacale':
-                sindaci = data.get('sindaci', [])
-                sindaci_presenti = [s for s in sindaci if s.get('presente')]
-                if sindaci_presenti:
-                    try:
-                        p = doc.add_paragraph(style='BodyText')
-                    except KeyError:
-                        p = doc.add_paragraph()
-                    run = p.add_run("per il Collegio Sindacale:")
-                    run.font.name = 'Times New Roman'
-                    run.font.size = Pt(12)
-                    for sindaco in sindaci_presenti:
-                        carica = sindaco.get('carica', 'Sindaco Effettivo')
-                        nome_sindaco = sindaco.get('nome', '')
-                        if nome_sindaco:
-                            try:
-                                p = doc.add_paragraph(style='BodyText')
-                            except KeyError:
-                                p = doc.add_paragraph()
-                            run = p.add_run(f"il Dott. {nome_sindaco} - {carica}")
-                            run.font.name = 'Times New Roman'
-                            run.font.size = Pt(12)
+                sindaci = [s for s in data.get('sindaci', []) if s.get('presente')]
+                if sindaci:
+                    p = doc.add_paragraph("per il Collegio Sindacale:")
+                    for s in sindaci:
+                        doc.add_paragraph(f"- {s.get('nome', '[NOME]')} {s.get('carica', '')}")
             else:
                 sindaci = data.get('sindaci', [])
                 if sindaci and sindaci[0].get('nome'):
-                    sindaco_unico_nome = sindaci[0].get('nome')
-                    try:
-                        p = doc.add_paragraph(style='BodyText')
-                    except KeyError:
-                        p = doc.add_paragraph()
-                    run = p.add_run(f"il Sindaco Unico nella persona del Sig. {sindaco_unico_nome}")
-                    run.font.name = 'Times New Roman'
-                    run.font.size = Pt(12)
-        
-        # Aggiungi la sezione dei soci se presenti
+                    doc.add_paragraph(f"il Sindaco Unico {sindaci[0].get('nome')}")
+
+        if data.get('include_revisore', False):
+            nome_rev = data.get('nome_revisore', '[NOME REVISORE]')
+            doc.add_paragraph(f"il revisore contabile Dott. {nome_rev}")
+
         soci = data.get('soci', [])
         if soci:
             self._add_soci_section(doc, data)
@@ -958,8 +1023,13 @@ Il Presidente                    Il Segretario
             compenso_annuo = CommonDataHandler.format_currency(data.get('compenso_annuo', '0,00'))
             rimborso_text = " oltre al rimborso delle spese sostenute in ragione del suo ufficio" if data.get('rimborso_spese', True) else ""
             
+            modalita = data.get('modalita_liquidazione', 'Periodicamente').lower()
+
             p = doc.add_paragraph(style='BodyText')
-            p.add_run(f"di attribuire all'amministratore unico testè nominato il compenso annuo ed omnicomprensivo pari a nominali euro {compenso_annuo} al lordo di ritenute fiscali e previdenziali{rimborso_text}. Il compenso verrà liquidato periodicamente, in ragione della permanenza in carica.")
+            p.add_run(
+                f"di attribuire all'amministratore unico testè nominato il compenso annuo ed omnicomprensivo pari a nominali euro {compenso_annuo} al lordo di ritenute fiscali e previdenziali{rimborso_text}. "
+                f"Il compenso verrà liquidato {modalita}, in ragione della permanenza in carica."
+            )
 
         # --- Accettazione finale ---
         p = doc.add_paragraph(style='BodyText')
